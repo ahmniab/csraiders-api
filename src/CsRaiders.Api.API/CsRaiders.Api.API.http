@@ -1,0 +1,6 @@
+@CsRaiders.Api.API_HostAddress = http://localhost:5267
+
+GET {{CsRaiders.Api.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
