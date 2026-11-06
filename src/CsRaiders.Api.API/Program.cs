@@ -1,6 +1,8 @@
 using CsRaiders.Api.Application.DependencyInjection;
 using CsRaiders.Api.Infrastructure.DependencyInjection;
+using CsRaiders.Api.Infrastructure.Persistence;
 using CsRaiders.Api.API.Middleware;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,6 +21,10 @@ app.UseMiddleware<GlobalExceptionMiddleware>();
 
 if (app.Environment.IsDevelopment())
 {
+    await using var scope = app.Services.CreateAsyncScope();
+    await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.MigrateAsync();
+    await scope.ServiceProvider.GetRequiredService<IdentitySeeder>().SeedAsync(allowSessionMultiForStudents: false);
+
     app.UseSwagger();
     app.UseSwaggerUI();
 }

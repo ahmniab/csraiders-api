@@ -1,3 +1,5 @@
+using CsRaiders.Api.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -9,8 +11,12 @@ public static class InfrastructureServiceExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // Register DbContext, repositories, external services, etc. here
+        var connectionString = configuration.GetConnectionString("Default")
+            ?? throw new InvalidOperationException("ConnectionStrings:Default is not configured.");
 
+        services.AddDbContext<AppDbContext>(o => o.UseNpgsql(connectionString).UseSnakeCaseNamingConvention());
+        services.AddSingleton(TimeProvider.System);          // never read DateTime.UtcNow directly
+        services.AddScoped<IdentitySeeder>();
         return services;
     }
 }
