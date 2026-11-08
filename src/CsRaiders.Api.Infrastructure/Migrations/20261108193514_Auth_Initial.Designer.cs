@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Net;
+using System.Text.Json;
 using CsRaiders.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -11,10 +12,10 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
-namespace CsRaiders.Api.Infrastructure.Persistence.Migrations
+namespace CsRaiders.Api.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20261105144818_Auth_Initial")]
+    [Migration("20261108193514_Auth_Initial")]
     partial class Auth_Initial
     {
         /// <inheritdoc />
@@ -27,6 +28,28 @@ namespace CsRaiders.Api.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "citext");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+
+            modelBuilder.Entity("CsRaiders.Api.Domain.Entities.AppSetting", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("key");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("value");
+
+                    b.HasKey("Key")
+                        .HasName("pk_app_settings");
+
+                    b.ToTable("app_settings", (string)null);
+                });
 
             modelBuilder.Entity("CsRaiders.Api.Domain.Entities.LoginAttempt", b =>
                 {
@@ -75,10 +98,6 @@ namespace CsRaiders.Api.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_login_attempts");
-
-                    b.HasIndex("Email")
-                        .IsUnique()
-                        .HasDatabaseName("ux_login_attempts_email");
 
                     b.HasIndex("UpdatedAt")
                         .HasDatabaseName("ix_login_attempts_updated");
@@ -273,6 +292,57 @@ namespace CsRaiders.Api.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("CsRaiders.Api.Domain.Entities.SecurityEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<JsonDocument>("Details")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("details");
+
+                    b.Property<string>("Email")
+                        .HasColumnType("citext")
+                        .HasColumnName("email");
+
+                    b.Property<string>("EventName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("event_name");
+
+                    b.Property<IPAddress>("Ip")
+                        .HasColumnType("inet")
+                        .HasColumnName("ip");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("pk_security_events");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("ix_security_events_created_at");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_security_events_user_id");
+
+                    b.ToTable("security_events", (string)null);
+                });
+
             modelBuilder.Entity("CsRaiders.Api.Domain.Entities.Session", b =>
                 {
                     b.Property<Guid>("Id")
@@ -421,6 +491,12 @@ namespace CsRaiders.Api.Infrastructure.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("password_hash");
 
+                    b.Property<short>("PepperVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("smallint")
+                        .HasDefaultValue((short)1)
+                        .HasColumnName("pepper_version");
+
                     b.Property<string>("Phone")
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)")
@@ -535,6 +611,15 @@ namespace CsRaiders.Api.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_password_reset_tokens_users_user_id");
+                });
+
+            modelBuilder.Entity("CsRaiders.Api.Domain.Entities.SecurityEvent", b =>
+                {
+                    b.HasOne("CsRaiders.Api.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_security_events_users_user_id");
                 });
 
             modelBuilder.Entity("CsRaiders.Api.Domain.Entities.Session", b =>

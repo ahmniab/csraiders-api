@@ -20,8 +20,11 @@ public static class InfrastructureServiceExtensions
         var connectionString = configuration.GetConnectionString("Default")
             ?? throw new InvalidOperationException("ConnectionStrings:Default is not configured.");
 
-        services.AddDbContext<AppDbContext>(o => o.UseNpgsql(connectionString).UseSnakeCaseNamingConvention());
-        services.AddPooledDbContextFactory<AppDbContext>(o => o.UseNpgsql(connectionString).UseSnakeCaseNamingConvention());
+        // One non-pooled factory registration supplies both scoped AppDbContext instances
+        // and IDbContextFactory<AppDbContext>. Avoid registering AddDbContext and a
+        // pooled factory together: the pool is singleton but its options become scoped.
+        services.AddDbContextFactory<AppDbContext>(o =>
+            o.UseNpgsql(connectionString).UseSnakeCaseNamingConvention());
         services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<AppDbContext>());
         services.AddScoped<ITransactionManager, EfTransactionManager>();
         services.AddSingleton(TimeProvider.System);          // never read DateTime.UtcNow directly

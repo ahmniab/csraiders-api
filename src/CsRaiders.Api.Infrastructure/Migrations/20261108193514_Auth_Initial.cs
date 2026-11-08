@@ -1,11 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Net;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace CsRaiders.Api.Infrastructure.Persistence.Migrations
+namespace CsRaiders.Api.Infrastructure.Migrations
 {
     /// <inheritdoc />
     public partial class Auth_Initial : Migration
@@ -15,6 +16,19 @@ namespace CsRaiders.Api.Infrastructure.Persistence.Migrations
         {
             migrationBuilder.AlterDatabase()
                 .Annotation("Npgsql:PostgresExtension:citext", ",,");
+
+            migrationBuilder.CreateTable(
+                name: "app_settings",
+                columns: table => new
+                {
+                    key = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
+                    value = table.Column<string>(type: "text", nullable: false),
+                    updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("pk_app_settings", x => x.key);
+                });
 
             migrationBuilder.CreateTable(
                 name: "pending_registrations",
@@ -68,6 +82,7 @@ namespace CsRaiders.Api.Infrastructure.Persistence.Migrations
                     whats_app = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: true),
                     academic_year = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: true),
                     password_hash = table.Column<string>(type: "text", nullable: false),
+                    pepper_version = table.Column<short>(type: "smallint", nullable: false, defaultValue: (short)1),
                     status = table.Column<string>(type: "text", nullable: false),
                     email_verified_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     password_changed_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
@@ -129,6 +144,30 @@ namespace CsRaiders.Api.Infrastructure.Persistence.Migrations
                         principalTable: "users",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "security_events",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "uuid", nullable: false),
+                    event_name = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
+                    user_id = table.Column<Guid>(type: "uuid", nullable: true),
+                    email = table.Column<string>(type: "citext", nullable: true),
+                    ip = table.Column<IPAddress>(type: "inet", nullable: true),
+                    details = table.Column<JsonDocument>(type: "jsonb", nullable: false),
+                    created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("pk_security_events", x => x.id);
+                    table.ForeignKey(
+                        name: "fk_security_events_users_user_id",
+                        column: x => x.user_id,
+                        principalTable: "users",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.SetNull);
                 });
 
             migrationBuilder.CreateTable(
@@ -229,12 +268,6 @@ namespace CsRaiders.Api.Infrastructure.Persistence.Migrations
                 column: "user_id");
 
             migrationBuilder.CreateIndex(
-                name: "ux_login_attempts_email",
-                table: "login_attempts",
-                column: "email",
-                unique: true);
-
-            migrationBuilder.CreateIndex(
                 name: "ix_password_reset_tokens_user",
                 table: "password_reset_tokens",
                 column: "user_id");
@@ -267,6 +300,16 @@ namespace CsRaiders.Api.Infrastructure.Persistence.Migrations
                 table: "roles",
                 column: "slug",
                 unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "ix_security_events_created_at",
+                table: "security_events",
+                column: "created_at");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_security_events_user_id",
+                table: "security_events",
+                column: "user_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_sessions_expires",
@@ -319,6 +362,9 @@ namespace CsRaiders.Api.Infrastructure.Persistence.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
+                name: "app_settings");
+
+            migrationBuilder.DropTable(
                 name: "login_attempts");
 
             migrationBuilder.DropTable(
@@ -326,6 +372,9 @@ namespace CsRaiders.Api.Infrastructure.Persistence.Migrations
 
             migrationBuilder.DropTable(
                 name: "pending_registrations");
+
+            migrationBuilder.DropTable(
+                name: "security_events");
 
             migrationBuilder.DropTable(
                 name: "sessions");
