@@ -1,3 +1,4 @@
+using CsRaiders.Api.Application.Common.Interfaces;
 using CsRaiders.Api.Domain.Entities;
 using CsRaiders.Api.Domain.Enums;
 using CsRaiders.Api.Domain.ValueObjects;
@@ -5,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CsRaiders.Api.Infrastructure.Persistence;
 
-public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
+public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IApplicationDbContext
 {
     public DbSet<User> Users => Set<User>();
     public DbSet<Role> Roles => Set<Role>();
