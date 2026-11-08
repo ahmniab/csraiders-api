@@ -4,11 +4,11 @@ using CsRaiders.Api.Application.Common.Interfaces.Security;
 
 namespace CsRaiders.Api.API.Middleware;
 
-public sealed class SessionValidationMiddleware(RequestDelegate next, ISessionStatusReader reader, ISessionCacheHook cacheHook)
+public sealed class SessionValidationMiddleware(RequestDelegate next)
 {
     private static readonly ConcurrentDictionary<Guid, (SessionStatus Status, DateTimeOffset CachedUntil)> Cache = new();
 
-    public async Task InvokeAsync(HttpContext context)
+    public async Task InvokeAsync(HttpContext context, ISessionStatusReader reader, ISessionCacheHook cacheHook)
     {
         if (context.User.Identity?.IsAuthenticated != true ||
             !Guid.TryParse(context.User.FindFirstValue("sid"), out var sid))

@@ -9,11 +9,16 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading.RateLimiting;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Host.UseSerilog((_, logger) => logger
+    .MinimumLevel.Information()
+    .WriteTo.Console());
+
 
 if (builder.Environment.IsProduction())
 {
@@ -74,6 +79,12 @@ builder.Services.AddApplicationServices();
 builder.Services.AddInfrastructureServices(builder.Configuration);
 
 var app = builder.Build();
+
+app.Lifetime.ApplicationStarted.Register(() =>
+{
+    foreach (var url in app.Urls)
+        app.Logger.LogInformation("Server started and listening on {Url}", url);
+});
 
 // ── Middleware pipeline ──────────────────────────────────────
 app.UseForwardedHeaders();
