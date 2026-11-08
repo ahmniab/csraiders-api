@@ -1,0 +1,337 @@
+# Auth & Session API — OpenAPI contract (authoritative surface)
+# Complements: errors-and-cookies.md (cookie contract and error taxonomy).
+# Base path /api/v1. Content type everywhere: application/json; UTF-8.
+# Preceding commentary moved into comments so the file parses as standalone YAML.
+openapi: 3.1.0
+info:
+  title: CS Raiders Auth & Sessions API
+  version: 1.0.0
+  description: |
+    Authentication, session lifecycle, and administrative RBAC contract.
+    Cookie contract and error taxonomy live in errors-and-cookies.md.
+servers:
+  - url: /api/v1
+tags:
+  - name: auth
+  - name: sessions
+  - name: admin-roles
+  - name: admin-users
+
+paths:
+  /auth/register:
+    post:
+      tags: [auth]
+      operationId: register
+      description: |
+        Starts registration. Always 202 with the same body regardless of email
+        state (new / pending / registered) — anti-enumeration. Rate limit: 20/min/IP (shared across /auth/*).
+        Never overwrites the stored password of a still-valid pending registration (Q2 clarification).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                name: { type: string, minLength: 1, maxLength: 200 }
+                password: { type: string, minLength: 8, maxLength: 128 }
+      responses:
+        "202": { description: Accepted (uniform) — content per AuthAcceptedResponse }
+        "422": { $ref: "#/components/responses/ValidationProblem" }
+        "429": { description: IP rate limit exceeded }
+        "503": { description: Crypto capacity exhausted (semaphore wait timeout) }
+
+  /auth/verify-otp:
+    post:
+      tags: [auth]
+      operationId: verifyOtp
+      description: Activates the account on a correct code; decrements attempts on any mismatch even when rejected (SEC-03). Invalid or expired code returns 400 invalid_or_expired_otp.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, code]
+              properties:
+                email: { type: string, format: email }
+                code: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        "200": { description: Verified — user may login }
+        "400": { $ref: "#/components/responses/AuthError" }
+        "422": { $ref: "#/components/responses/ValidationProblem" }
+
+  /auth/resend-otp:
+    post:
+      tags: [auth]
+      operationId: resendOtp
+      description: Issues a fresh OTP replacing the previous one (old code dead, attempts reset, expiry re-extended). Uniform 202 for unknown / pending / registered emails. 60 s cooldown and 5-per-hour cap per email.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        "202": { description: Accepted (uniform) — content per AuthAcceptedResponse }
+        "422": { $ref: "#/components/responses/ValidationProblem" }
+
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      description: |
+        Verifies credentials gate-first (see errors-and-cookies.md §Lockout). Sets
+        `__Host-csraiders_rt` (and `csraiders_dfp`) cookies on success. Supersedes or caps prior
+        sessions per the caller's permissions before insert. A suspended account and an
+        unknown account are indistinguishable (401 invalid_credentials).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        "200":
+          description: Authenticated
+          headers:
+            Set-Cookie:
+              description: "__Host-csraiders_rt (+ csraiders_dfp)"
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoginResponse" }
+        "401": { $ref: "#/components/responses/AuthError" }
+        "429": { description: IP rate limit exceeded }
+        "503": { description: Crypto capacity exhausted }
+
+  /auth/refresh:
+    post:
+      tags: [auth]
+      operationId: refresh
+      description: |
+        Requires cookies `__Host-csraiders_rt` + `csraiders_dfp`, Origin check, header
+        `X-Requested-With: csraiders`, Content-Type application/json (see errors-and-cookies.md).
+        Rotates the token pair; retired token replay within 15 s rotates again, afterwards
+        revokes the session (401 session_compromised) — never rolled back.
+      responses:
+        "200":
+          description: Rotated
+          headers:
+            Set-Cookie: { description: "New __Host-csraiders_rt", schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoginResponse" }
+        "401": { $ref: "#/components/responses/AuthError" }   # invalid_grant | session_superseded | session_compromised
+        "403": { description: Origin/header validation failed }
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      description: Requires Authorization header; origin/header validation when cookie present. Revokes the sid session (reason logout), evicts cache, clears cookies.
+      security: [{ bearerAccess: [] }]
+      responses:
+        "200": { description: Logged out }
+        "401": { $ref: "#/components/responses/AuthError" }
+
+  /auth/forgot-password:
+    post:
+      tags: [auth]
+      operationId: forgotPassword
+      description: Uniform 202 for any email; supersedes prior unused tokens; queues email with 30-minute single-use link.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        "202": { description: Accepted (uniform) — content per AuthAcceptedResponse }
+
+  /auth/reset-password:
+    post:
+      tags: [auth]
+      operationId: resetPassword
+      description: Single-use token consumes + password update + revoke all sessions (password_reset). Uniform responses that do not confirm token validity via different timing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token: { type: string }
+                password: { type: string, minLength: 8, maxLength: 128 }
+      responses:
+        "200": { description: Password reset }
+        "400": { $ref: "#/components/responses/AuthError" }
+
+  /auth/change-password:
+    post:
+      tags: [auth]
+      operationId: changePassword
+      description: Requires current password; revokes all OTHER sessions (password_changed).
+      security: [{ bearerAccess: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword: { type: string }
+                newPassword: { type: string, minLength: 8, maxLength: 128 }
+      responses:
+        "200": { description: Changed }
+        "401": { $ref: "#/components/responses/AuthError" }   # wrong current password
+
+  /me/sessions:
+    get:
+      tags: [sessions]
+      operationId: listSessions
+      security: [{ bearerAccess: [] }]
+      description: Lists the caller's active sessions (id, device label, ip, user agent, created/last seen). Never exposes tokens/hashes.
+      responses:
+        "200": { description: OK, content per SessionListResponse }
+        "401": { $ref: "#/components/responses/AuthError" }
+
+  /me/sessions/{sessionId}:
+    delete:
+      tags: [sessions]
+      operationId: revokeSession
+      security: [{ bearerAccess: [] }]
+      description: Revokes one of the caller's sessions by id (admin or self).
+      parameters:
+        - { name: sessionId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Revoked }
+        "404": { description: Not owned / not found }
+
+  /me/sessions/revoke-others:
+    post:
+      tags: [sessions]
+      operationId: revokeOtherSessions
+      security: [{ bearerAccess: [] }]
+      responses:
+        "200": { description: All other sessions revoked (count returned) }
+
+  /admin/roles/{roleId}/permissions:
+    put:
+      tags: [admin-roles]
+      operationId: updateRolePermissions
+      security: [{ hasPermission: [role:manage] }]
+      description: Replaces a role's permission set (escalation-guarded). Cancels the global perms cache token. Triggers reconciliation for session:multi changes.
+      parameters:
+        - { name: roleId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [permissions]
+              properties:
+                permissions: { type: array, items: { type: string } }
+      responses:
+        "200": { description: Updated }
+        "403": { description: Permission missing or escalation guard (granting unheld permission) }
+        "404": { description: Unknown role }
+
+  /admin/roles:
+    post:
+      tags: [admin-roles]
+      operationId: createRole
+      security: [{ hasPermission: [role:manage] }]
+      responses:
+        "201": { description: Created }
+        "409": { description: Slug conflict }
+
+  /admin/users/{userId}/permissions{?effect}:
+    post:
+      tags: [admin-users]
+      operationId: setUserPermissionOverride
+      security: [{ hasPermission: [user:manage] }]
+      description: Sets or clears a per-user grant/deny override. Reconciles sessions when session:multi access changes.
+      parameters:
+        - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Override updated }
+
+  /admin/users/{userId}/roles:
+    put:
+      tags: [admin-users]
+      operationId: setUserRoles
+      security: [{ hasPermission: [user:manage] }]
+      description: Elevation path (Q1 clarification) — replaces the user's role memberships from set of role slugs.
+      parameters:
+        - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Roles updated }
+        "403": { description: Missing user:manage or Student-scope→staff escalation violation }
+
+  /admin/users/{userId}/suspend:
+    post:
+      tags: [admin-users]
+      operationId: suspendUser
+      security: [{ hasPermission: [user:manage] }]
+      responses:
+        "200": { description: Suspended — all sessions revoked (account_disabled), login unchanged uniform }
+
+components:
+  securitySchemes:
+    bearerAccess: { type: http, scheme: bearer, bearerFormat: JWT }
+    hasPermission:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Same transport as bearerAccess but evaluated by permission authorization handler.
+  responses:
+    AuthError:
+      description: 'Stable error envelope { error: { code, message? } }; codes per errors-and-cookies.md'
+    ValidationProblem:
+      description: RFC 7807 problem-plus-validation details
+  schemas:
+    LoginResponse:
+      type: object
+      properties:
+        accessToken: { type: string, description: "15-min JWT (sub, sid, iat, exp only)" }
+        user:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+            email: { type: string }
+    AuthAcceptedResponse:
+      type: object
+      properties:
+        message: { type: string, description: constant generic text }
+    SessionListResponse:
+      type: object
+      properties:
+        currentSessionId: { type: string, format: uuid }
+        sessions:
+          type: array
+          items:
+            type: object
+            properties:
+              sessionId: { type: string, format: uuid }
+              deviceLabel: { type: string }
+              ip: { type: string }
+              userAgent: { type: string }
+              createdAt: { type: string, format: date-time }
+              lastSeenAt: { type: string, format: date-time }
