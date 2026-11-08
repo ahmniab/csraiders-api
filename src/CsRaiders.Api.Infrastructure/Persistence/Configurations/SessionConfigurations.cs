@@ -39,7 +39,7 @@ internal sealed class LoginAttemptConfiguration : IEntityTypeConfiguration<Login
         b.ConfigureBase();
 
         b.HasOne<User>().WithMany().HasForeignKey(a => a.UserId).OnDelete(DeleteBehavior.SetNull);
-        b.HasIndex(a => a.Email).IsUnique().HasDatabaseName("ux_login_attempts_email");
+        b.HasIndex(a => new { a.Email, a.LastIp }).IsUnique().HasDatabaseName("ux_login_attempts_email_ip");
         b.HasIndex(a => new { a.LastIp, a.FirstFailureAt }).HasDatabaseName("ix_login_attempts_ip_window");
         b.HasIndex(a => a.UpdatedAt).HasDatabaseName("ix_login_attempts_updated");   // nightly purge
     }

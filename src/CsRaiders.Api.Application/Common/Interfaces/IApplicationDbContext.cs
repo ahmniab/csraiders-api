@@ -13,6 +13,8 @@ public interface IApplicationDbContext
     DbSet<LoginAttempt> LoginAttempts { get; }
     DbSet<PendingRegistration> PendingRegistrations { get; }
     DbSet<PasswordResetToken> PasswordResetTokens { get; }
+    DbSet<SecurityEvent> SecurityEvents { get; }
+    DbSet<AppSetting> AppSettings { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

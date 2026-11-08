@@ -19,6 +19,7 @@ public sealed class User : Entity
     public string? WhatsApp { get; private set; }
     public string? AcademicYear { get; private set; }
     public string PasswordHash { get; private set; } = null!;
+    public short PepperVersion { get; private set; } = 1;
     public UserStatus Status { get; private set; }
     public DateTimeOffset? EmailVerifiedAt { get; private set; }
     public DateTimeOffset? PasswordChangedAt { get; private set; }

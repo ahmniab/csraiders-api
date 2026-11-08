@@ -1,4 +1,5 @@
 using CsRaiders.Api.Application.Common.Interfaces.Repositories;
+using CsRaiders.Api.Application.Common.Interfaces.Security;
 using CsRaiders.Api.Application.Common.Models;
 using CsRaiders.Api.Domain.Entities;
 using CsRaiders.Api.Domain.Enums;
@@ -6,8 +7,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CsRaiders.Api.Infrastructure.Persistence.Repositories;
 
-public sealed class SessionRepository(AppDbContext db) : ISessionRepository
+public sealed class SessionRepository(AppDbContext db) : ISessionRepository, ISessionStatusReader
 {
+    public async Task<SessionStatus?> ReadAsync(Guid sessionId, CancellationToken ct = default) =>
+        await db.Sessions.AsNoTracking().Where(s => s.Id == sessionId)
+            .Select(s => new SessionStatus(s.Id, s.UserId, s.ExpiresAt, s.IdleExpiresAt, s.RevokedAt != null))
+            .SingleOrDefaultAsync(ct);
     public async Task<Session?> FindByIdAsync(Guid sessionId, bool track = false, CancellationToken ct = default)
     {
         var query = track ? db.Sessions.AsQueryable() : db.Sessions.AsNoTracking();

@@ -16,6 +16,7 @@ internal sealed class UserConfiguration : IEntityTypeConfiguration<User>
         b.Property(u => u.WhatsApp).HasMaxLength(32);
         b.Property(u => u.AcademicYear).HasMaxLength(32);
         b.Property(u => u.PasswordHash).IsRequired();
+        b.Property(u => u.PepperVersion).HasDefaultValue((short)1).IsRequired();
 
         b.HasIndex(u => u.Email).IsUnique().HasDatabaseName("ux_users_email");   // citext => case-insensitive
         b.HasIndex(u => u.Status).HasDatabaseName("ix_users_status");
