@@ -69,7 +69,7 @@ Every decision below is anchored either to the design documents (`docs/designs/a
 
 ## D11 — Email delivery without an outbox
 
-**Decision**: `IEmailQueue` = bounded `Channel<EmailMessage>` (capacity 1,000; full → drop + warning) consumed by a hosted `EmailSenderWorker` (10 s send timeout, 3 in-process retries at 1 s/5 s/15 s, drains on shutdown, logs redact recipient address, codes, and links). Crash may lose queued mail — accepted; users resend (`re-issue` path already implemented in `PendingRegistration.Reissue` with 60 s cooldown + 5/hour cap). Admin elevation runs queue an "account elevated" notice; already-registered emails queue an "already registered" notice instead of erroring.
+**Decision**: `IEmailQueue` = bounded `Channel<EmailMessage>` (capacity 1,000; full → drop + warning) consumed by a hosted `EmailSenderWorker` (10 s send timeout, 3 in-process retries at 1 s/5 s/15 s, drains on shutdown, logs redact recipient address, codes, and links). Crash may lose queued mail — accepted; users resend (`re-issue` path already implemented in `PendingRegistration.Reissue` with 60 s cooldown + 5/hour cap). Admin elevation runs queue an "account elevated" notice. A registration attempt for an already-registered email returns `409 already_registered` without queueing a notification.
 
 **Rationale**: Revision 2 §7; PostgreSQL outbox rejected (Alternatives #5).
 

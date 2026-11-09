@@ -35,11 +35,11 @@ A prospective student creates an account by submitting their name, email, and pa
 
 **Acceptance Scenarios**:
 
-1. **Given** an email address not yet registered, **When** the user submits valid registration details, **Then** the system accepts the request, stores a hashed password plus a single-use verification code derived from a cryptographically secure random value, emails the code, and returns the same generic success response regardless of whether the email already exists.
+1. **Given** an email address not yet registered, **When** the user submits valid registration details, **Then** the system accepts the request, stores a hashed password plus a single-use verification code derived from a cryptographically secure random value, emails the code, and returns the generic accepted response.
 2. **Given** a pending registration with a correct code within its validity window, **When** the user submits the code, **Then** the account is activated with the default learner role, the pending record (including any stored password) is purged, and the user can sign in.
 3. **Given** a pending registration has consumed its allowed verification attempts with wrong codes, **When** the user then submits the correct code, **Then** the code is rejected and no account is created; the user must restart registration (or resend, if still within limits).
 4. **Given** the original verification email was never delivered, **When** the user requests a fresh code after the cooldown, **Then** the new code replaces the old one entirely — the old code no longer works and the attempt counter is reset.
-5. **Given** an email that is already a fully registered user, **When** someone submits registration details for it, **Then** the system responds identically to a new registration (same status, same timing) and never reveals that the email is taken.
+5. **Given** an email that is already a fully registered user, **When** someone submits registration details for it, **Then** the system returns `409 already_registered` and does not enqueue an email.
 6. **Given** a pending registration that is still valid, **When** the same email submits new registration details with a different password, **Then** the originally stored password is preserved (re-registering never overwrites a pending password) and the request behaves as a resend.
 
 ---
@@ -184,7 +184,7 @@ Administrators can suspend users (instantly locking them out) and the system aut
 
 - **FR-001**: System MUST allow prospective users to register with name, email, and password from any valid, deliverable email address (no domain restriction in this milestone), and MUST verify email ownership with a 6-digit random code before activating the account.
 - **FR-002**: System MUST store the registration code only as a keyed hash bound to the email address, allow a maximum of 5 verification attempts, and expire attempts after 10 minutes.
-- **FR-003**: Registration attempts for already-registered emails MUST produce the same response and timing as new registrations (no account existence disclosure).
+- **FR-003**: Registration attempts for already-registered emails MUST return `409 already_registered` and MUST NOT enqueue an email. This intentionally exposes registration state to avoid unnecessary delivery load.
 - **FR-004**: Registration codes MUST be re-issuable via resend, with a 60-second cooldown per email and a maximum of 5 sends per hour per email; a resent code MUST fully replace the previous one (old code invalid, attempts reset, expiry extended).
 - **FR-005**: Re-registering an email that has a valid pending registration MUST NOT overwrite the stored password.
 
@@ -272,7 +272,7 @@ Administrators can suspend users (instantly locking them out) and the system aut
 - **Registration scope**: public and open to any email domain in this milestone; no invitations, institutional allow-lists, or bot defenses beyond the specified rate limits and cryptographic work.
 - **Defaults carried from the design**: multi-session cap = 3; idle session lifetime = 14 days; absolute session lifetime = 30 days; refresh grace window = 15 seconds; OTP = 5 attempts / 10 minutes / 60-second resend cooldown / 5 per hour; lockout delays 2^(n−3) seconds capped at 15 s with a 15-minute block at the 10th failure; email queue capacity 1000 with 3 delivery attempts; cleanup retention per FR-034.
 - **Session cache strategy** follows Revision 2 (absolute, not sliding, ≤5s expiry with explicit eviction on every server-side revoke) — resolving the base design's "sliding 5–10s" ambiguity, which would otherwise allow a continuously-active session to skip revalidation indefinitely.
-- **HTTP status usage** follows Revision 2 (uniform 401 for all login failures; 202-style generic acceptance for registration/resend/reset; no 423).
+- **HTTP status usage** follows Revision 2 for login and resend/reset flows (uniform 401 for login failures; 202-style generic acceptance for resend/reset; no 423). Registration returns 202 for new/pending requests and 409 `already_registered` for existing accounts.
 - **Only one generation** of retired refresh credential is tracked; theft of a credential two or more rotations old is a documented accepted limitation with a token-family table as the upgrade path.
 - **Privilege provisioning**: no invite flows, no bootstrap-created privileged accounts, and no password recovery needed for never-registered elevated users; the first administrator is provisioned out-of-band (install-time) and every subsequent privileged account is an elevation of a registered user.
 - **Email delivery loss on crash** is accepted because users can resend; no durable outbox in this milestone.

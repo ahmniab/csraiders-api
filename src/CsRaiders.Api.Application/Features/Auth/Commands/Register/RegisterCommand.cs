@@ -10,10 +10,11 @@ namespace CsRaiders.Api.Application.Features.Auth.Commands.Register;
 
 public sealed record RegisterCommand(string Email, string Password, string? Name) : IRequest<RegisterResult>;
 
-public sealed record RegisterResult(bool Accepted, bool CapacityExhausted = false)
+public sealed record RegisterResult(bool Accepted, bool CapacityExhausted = false, bool AlreadyRegistered = false)
 {
     public static RegisterResult Generic() => new(true);
     public static RegisterResult Capacity() => new(false, true);
+    public static RegisterResult AlreadyRegisteredResult() => new(false, false, true);
 }
 
 public sealed class RegisterCommandValidator : AbstractValidator<RegisterCommand>
@@ -46,11 +47,7 @@ public sealed class RegisterCommandHandler(
         var existing = await users.FindByEmailAsync(email, ct: ct);
 
         if (existing is not null)
-        {
-            return emailQueue.TryEnqueue(new EmailMessage(email.Value, "CS Raiders account notice",
-                "An account already exists for this email address.", EmailPurpose.AccountNotice))
-                ? RegisterResult.Generic() : RegisterResult.Capacity();
-        }
+            return RegisterResult.AlreadyRegisteredResult();
 
         var staged = await pendingRegistrations.FindByEmailAsync(email, track: true, ct);
         var otp = otps.Generate();

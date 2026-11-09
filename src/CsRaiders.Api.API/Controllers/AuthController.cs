@@ -18,7 +18,9 @@ public sealed class AuthController(IMediator mediator) : ControllerBase
     public async Task<IActionResult> Register(RegisterRequest request, CancellationToken ct)
     {
         var result = await mediator.Send(new RegisterCommand(request.Email, request.Password, request.Name), ct);
-        return result.CapacityExhausted
+        return result.AlreadyRegistered
+            ? ProblemResult(409, "already_registered", "An account is already registered for this email address.")
+            : result.CapacityExhausted
             ? ProblemResult(503, "capacity_exhausted", "The service is temporarily unable to process this request.")
             : AcceptedResult();
     }

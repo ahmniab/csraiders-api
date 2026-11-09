@@ -23,8 +23,9 @@ paths:
       tags: [auth]
       operationId: register
       description: |
-        Starts registration. Always 202 with the same body regardless of email
-        state (new / pending / registered) — anti-enumeration. Rate limit: 20/min/IP (shared across /auth/*).
+        Starts registration. New and pending registrations return 202. An already
+        registered email returns 409 already_registered and does not enqueue mail.
+        Rate limit: 20/min/IP (shared across /auth/*).
         Never overwrites the stored password of a still-valid pending registration (Q2 clarification).
       requestBody:
         required: true
@@ -39,6 +40,7 @@ paths:
                 password: { type: string, minLength: 8, maxLength: 128 }
       responses:
         "202": { description: Accepted (uniform) — content per AuthAcceptedResponse }
+        "409": { description: Email is already registered (no email is queued) }
         "422": { $ref: "#/components/responses/ValidationProblem" }
         "429": { description: IP rate limit exceeded }
         "503": { description: Crypto capacity exhausted (semaphore wait timeout) }

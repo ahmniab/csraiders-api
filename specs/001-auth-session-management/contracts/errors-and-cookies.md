@@ -37,13 +37,14 @@ Every body: `{ "error": { "code": "...", "message": "<human text>" } }` (message
 | `invalid_or_expired_otp` | 400 | Verify-otp generic failure (wrong/expired/attempt-exhausted are deliberately indistinguishable). |
 | `forbidden` | 403 | Failed origin/header validation, or missing effective permission on a `[HasPermission]` endpoint. |
 | `validation_failed` | 422 | Structural validation (email format, password length/ NFC, name length). |
+| `already_registered` | 409 | Registration was attempted for an email that already has an account; no notification email is queued. |
 | `rate_limited` | 429 | IP limiter (20/min/IP on `/auth/*`); `Retry-After` set. |
 | `capacity_exhausted` | 503 | Password-hashing semaphore wait timeout (2 s) — shed load, never queue forever. |
 
 ## 4. Success mail rules
 
 - Register / resend / forgot-password return the constant `202` body (`AuthAcceptedResponse`) with byte-identical timing envelope regardless of account state.
-- Registry of security-relevant outcomes (no statuses reveal them): suspension, elevation, already-registered notice, password reset token issuance.
+- Registry of security-relevant outcomes: suspension, elevation, already-registered registration attempts, and password reset token issuance.
 
 ## 5. Observability surface (from FR-038)
 

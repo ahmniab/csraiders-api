@@ -28,7 +28,7 @@ Smoke test (from `contracts/openapi.yaml`):
 curl -X POST https://localhost:5001/api/v1/auth/register \
   -H 'Content-Type: application/json' \
   -d '{"email":"student@example.com","name":"Student","password":"Sup3rSecret!"}'
-# → 202, constant body; then likewise register the same email → identical 202 body & sub-second time
+# → 202, constant body; registering the same email again → 409 { error: { code: "already_registered" } }, with no email queued
 ```
 
 ## 3. Scenarios — the spec's acceptance criteria, runnable
