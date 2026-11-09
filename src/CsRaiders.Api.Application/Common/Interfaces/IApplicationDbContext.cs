@@ -1,5 +1,6 @@
 using CsRaiders.Api.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 
 namespace CsRaiders.Api.Application.Common.Interfaces;
 
@@ -15,6 +16,8 @@ public interface IApplicationDbContext
     DbSet<PasswordResetToken> PasswordResetTokens { get; }
     DbSet<SecurityEvent> SecurityEvents { get; }
     DbSet<AppSetting> AppSettings { get; }
+
+    EntityEntry Entry(object entity);
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }
