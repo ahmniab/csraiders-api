@@ -37,7 +37,7 @@ public sealed class PendingRegistration : Entity
     }
 
     /// <summary>Second register call for the same email: new OTP, subject to cooldown and the hourly cap.</summary>
-    public OtpSendResult Reissue(string name, string passwordHash, byte[] otpHash, DateTimeOffset now)
+    public OtpSendResult Reissue(string name, byte[] otpHash, DateTimeOffset now)
     {
         if (now < ResendAvailableAt) return OtpSendResult.CooldownActive;
 
@@ -48,7 +48,14 @@ public sealed class PendingRegistration : Entity
         }
         if (SendCountWindow >= AuthRules.OtpMaxSendsPerHour) return OtpSendResult.HourlyLimitReached;
 
-        Apply(name, passwordHash, otpHash, now);
+        // A resend changes only the OTP state. The password hash captured at
+        // the start of registration must remain untouched (SEC-16).
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        Name = name.Trim();
+        OtpHash = otpHash;
+        AttemptsLeft = AuthRules.OtpMaxAttempts;
+        ExpiresAt = now + AuthRules.OtpLifetime;
+        ResendAvailableAt = now + AuthRules.OtpResendCooldown;
         SendCountWindow++;
         return OtpSendResult.Sent;
     }

@@ -14,7 +14,7 @@ public sealed class ConsoleEmailSender(ILogger<ConsoleEmailSender> logger) : IEm
 {
     public Task SendAsync(EmailMessage message, CancellationToken ct = default)
     {
-        logger.LogInformation("Email queued: purpose {Purpose}, recipient redacted", message.Purpose);
+        logger.LogInformation("Email queued: purpose {Purpose}, recipient redacted", message.Body);
         return Task.CompletedTask;
     }
 }
