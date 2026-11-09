@@ -4,7 +4,7 @@ using CsRaiders.Api.Application.Common.Abstractions;
 using CsRaiders.Api.Domain.Entities;
 using CsRaiders.Api.Domain.ValueObjects;
 using FluentValidation;
-using MediatR;
+using Mediator;
 
 namespace CsRaiders.Api.Application.Features.Auth.Commands.VerifyOtp;
 
@@ -32,7 +32,7 @@ public sealed class VerifyOtpCommandHandler(
     ISecurityAuditWriter audit,
     IPlatformClock clock) : IRequestHandler<VerifyOtpCommand, VerifyOtpResult>
 {
-    public async Task<VerifyOtpResult> Handle(VerifyOtpCommand request, CancellationToken ct)
+    public async ValueTask<VerifyOtpResult> Handle(VerifyOtpCommand request, CancellationToken ct)
     {
         var email = Email.Create(request.Email);
         var pending = await pendingRegistrations.FindByEmailAsync(email, track: true, ct);

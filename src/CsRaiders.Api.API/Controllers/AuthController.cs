@@ -1,7 +1,7 @@
 using CsRaiders.Api.Application.Features.Auth.Commands.Register;
 using CsRaiders.Api.Application.Features.Auth.Commands.ResendOtp;
 using CsRaiders.Api.Application.Features.Auth.Commands.VerifyOtp;
-using MediatR;
+using Mediator;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 

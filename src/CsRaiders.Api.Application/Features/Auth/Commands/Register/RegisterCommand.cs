@@ -4,7 +4,7 @@ using CsRaiders.Api.Application.Common.Abstractions;
 using CsRaiders.Api.Domain.Entities;
 using CsRaiders.Api.Domain.ValueObjects;
 using FluentValidation;
-using MediatR;
+using Mediator;
 
 namespace CsRaiders.Api.Application.Features.Auth.Commands.Register;
 
@@ -38,7 +38,7 @@ public sealed class RegisterCommandHandler(
     IEmailQueue emailQueue,
     IPlatformClock clock) : IRequestHandler<RegisterCommand, RegisterResult>
 {
-    public async Task<RegisterResult> Handle(RegisterCommand request, CancellationToken ct)
+    public async ValueTask<RegisterResult> Handle(RegisterCommand request, CancellationToken ct)
     {
         var email = Email.Create(request.Email);
         var now = clock.UtcNow;

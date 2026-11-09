@@ -4,7 +4,7 @@ using CsRaiders.Api.Application.Common.Abstractions;
 using CsRaiders.Api.Domain.Entities;
 using CsRaiders.Api.Domain.ValueObjects;
 using FluentValidation;
-using MediatR;
+using Mediator;
 
 namespace CsRaiders.Api.Application.Features.Auth.Commands.ResendOtp;
 
@@ -27,7 +27,7 @@ public sealed class ResendOtpCommandHandler(
     IEmailQueue emailQueue,
     IPlatformClock clock) : IRequestHandler<ResendOtpCommand, ResendOtpResult>
 {
-    public async Task<ResendOtpResult> Handle(ResendOtpCommand request, CancellationToken ct)
+    public async ValueTask<ResendOtpResult> Handle(ResendOtpCommand request, CancellationToken ct)
     {
         var email = Email.Create(request.Email);
         var existing = await users.FindByEmailAsync(email, ct: ct);
