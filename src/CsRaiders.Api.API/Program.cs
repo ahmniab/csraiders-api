@@ -13,6 +13,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading.RateLimiting;
 using Serilog;
+using CsRaiders.Api.API.Services;
+using CsRaiders.Api.Application.Common.Abstractions;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseSerilog((_, logger) => logger
@@ -43,6 +45,7 @@ builder.Services.AddOptions<AuthOptions>()
 
 // ── Services ────────────────────────────────────────────────
 builder.Services.AddControllers();
+builder.Services.AddScoped<ISessionCookieWriter, SessionCookieWriter>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 

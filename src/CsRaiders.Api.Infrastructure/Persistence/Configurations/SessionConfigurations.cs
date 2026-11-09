@@ -39,10 +39,8 @@ internal sealed class LoginAttemptConfiguration : IEntityTypeConfiguration<Login
         b.ConfigureBase();
 
         b.HasOne<User>().WithMany().HasForeignKey(a => a.UserId).OnDelete(DeleteBehavior.SetNull);
-        // The composite per-(email, ip) uniqueness is created as a database-only
-        // index in the hardening migration. Npgsql maps inet to IPAddress, which
-        // cannot be used in EF's change-tracker key/index comparer.
-        b.HasIndex(a => new { a.LastIp, a.FirstFailureAt }).HasDatabaseName("ix_login_attempts_ip_window");
+        // IP-based indexes are intentionally created in SQL migrations only.
+        // EF cannot build a change-tracker comparer for Npgsql's IPAddress CLR type.
         b.HasIndex(a => a.UpdatedAt).HasDatabaseName("ix_login_attempts_updated");   // nightly purge
     }
 }

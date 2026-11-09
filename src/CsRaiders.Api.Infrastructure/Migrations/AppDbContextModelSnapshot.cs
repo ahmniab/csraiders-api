@@ -102,9 +102,6 @@ namespace CsRaiders.Api.Infrastructure.Migrations
                     b.HasIndex("UserId")
                         .HasDatabaseName("ix_login_attempts_user_id");
 
-                    b.HasIndex("LastIp", "FirstFailureAt")
-                        .HasDatabaseName("ix_login_attempts_ip_window");
-
                     b.ToTable("login_attempts", (string)null);
                 });
 

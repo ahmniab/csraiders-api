@@ -31,6 +31,9 @@ public sealed class LoginAttempt : Entity
 
     public static LoginAttempt For(Email email, DateTimeOffset now) => new() { Email = email, UpdatedAt = now };
 
+    public static LoginAttempt For(Email email, IPAddress? ip, DateTimeOffset now) =>
+        new() { Email = email, LastIp = ip, UpdatedAt = now };
+
     /// <summary>Check this BEFORE verifying the password, so a locked account never costs an Argon2id run.</summary>
     public LoginGate Evaluate(DateTimeOffset now)
     {

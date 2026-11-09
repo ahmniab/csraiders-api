@@ -15,7 +15,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CsRaiders.Api.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20261108193514_Auth_Initial")]
+    [Migration("20261109133710_Auth_Initial")]
     partial class Auth_Initial
     {
         /// <inheritdoc />
@@ -104,9 +104,6 @@ namespace CsRaiders.Api.Infrastructure.Migrations
 
                     b.HasIndex("UserId")
                         .HasDatabaseName("ix_login_attempts_user_id");
-
-                    b.HasIndex("LastIp", "FirstFailureAt")
-                        .HasDatabaseName("ix_login_attempts_ip_window");
 
                     b.ToTable("login_attempts", (string)null);
                 });

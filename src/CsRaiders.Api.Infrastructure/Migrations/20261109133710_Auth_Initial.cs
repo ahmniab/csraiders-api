@@ -253,11 +253,6 @@ namespace CsRaiders.Api.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateIndex(
-                name: "ix_login_attempts_ip_window",
-                table: "login_attempts",
-                columns: new[] { "last_ip", "first_failure_at" });
-
-            migrationBuilder.CreateIndex(
                 name: "ix_login_attempts_updated",
                 table: "login_attempts",
                 column: "updated_at");

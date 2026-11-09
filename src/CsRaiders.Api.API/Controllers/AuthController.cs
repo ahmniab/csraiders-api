@@ -1,16 +1,19 @@
 using CsRaiders.Api.Application.Features.Auth.Commands.Register;
 using CsRaiders.Api.Application.Features.Auth.Commands.ResendOtp;
 using CsRaiders.Api.Application.Features.Auth.Commands.VerifyOtp;
+using CsRaiders.Api.Application.Features.Auth.Commands.Login;
+using CsRaiders.Api.Application.Common.Abstractions;
 using Mediator;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using CsRaiders.Api.API.Services;
 
 namespace CsRaiders.Api.API.Controllers;
 
 [ApiController]
 [AllowAnonymous]
 [Route("api/v1/auth")]
-public sealed class AuthController(IMediator mediator) : ControllerBase
+public sealed class AuthController(IMediator mediator, ISessionCookieWriter cookies) : ControllerBase
 {
     private static readonly object AcceptedPayload = new { message = "If the account can be registered, a verification message will be sent." };
 
@@ -43,6 +46,32 @@ public sealed class AuthController(IMediator mediator) : ControllerBase
             : AcceptedResult();
     }
 
+    [HttpPost("login")]
+    public async Task<IActionResult> Login(LoginRequest request, CancellationToken ct)
+    {
+        var result = await mediator.Send(new LoginCommand(
+            request.Email, request.Password, HttpContext.Connection.RemoteIpAddress,
+            cookies.GetOrCreateDeviceFingerprint(Request.Cookies[SessionCookieWriter.DeviceCookie]), Request.Headers.UserAgent.ToString()), ct);
+
+        if (result.CapacityExhausted)
+            return ProblemResult(503, "capacity_exhausted", "The service is temporarily unable to process this request.");
+        if (!result.Succeeded)
+        {
+            if (result.RetryAfter is { } retry && retry > TimeSpan.Zero)
+                Response.Headers.RetryAfter = Math.Max(1, (int)Math.Ceiling(retry.TotalSeconds)).ToString();
+            return ProblemResult(401, "invalid_credentials", "The email or password is incorrect.");
+        }
+
+        foreach (var cookie in cookies.CreateLoginCookies(result.RefreshToken!, result.DeviceFingerprint!,
+                     !Request.Cookies.ContainsKey(SessionCookieWriter.DeviceCookie)))
+            Response.Cookies.Append(cookie.Name, cookie.Value, new CookieOptions
+            {
+                Secure = true, HttpOnly = true, SameSite = SameSiteMode.Strict,
+                Path = "/", MaxAge = cookie.MaxAge, IsEssential = true
+            });
+        return Ok(new { accessToken = result.AccessToken, sessionId = result.SessionId });
+    }
+
     private AcceptedResult AcceptedResult() => base.Accepted(value: AcceptedPayload);
 
     private ObjectResult ProblemResult(int status, string code, string message) =>
@@ -52,3 +81,4 @@ public sealed class AuthController(IMediator mediator) : ControllerBase
 public sealed record RegisterRequest(string Email, string Password, string? Name);
 public sealed record VerifyOtpRequest(string Email, string Code);
 public sealed record ResendOtpRequest(string Email);
+public sealed record LoginRequest(string Email, string Password);

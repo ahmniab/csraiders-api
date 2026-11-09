@@ -36,6 +36,7 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IRoleRepository, RoleRepository>();
         services.AddScoped<ISessionRepository, SessionRepository>();
         services.AddScoped<ILoginAttemptRepository, LoginAttemptRepository>();
+        services.AddScoped<ILoginAttemptTracker, LoginAttemptTracker>();
         services.AddScoped<IPendingRegistrationRepository, PendingRegistrationRepository>();
         services.AddScoped<IPasswordResetTokenRepository, PasswordResetTokenRepository>();
         services.AddScoped<ISecurityEventRepository, SecurityEventRepository>();
@@ -49,6 +50,7 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IPasswordHasher, CsRaiders.Api.Infrastructure.Security.Argon2idPasswordHasher>();
         services.AddSingleton<IOtpGenerator, CsRaiders.Api.Infrastructure.Security.HmacOtpGenerator>();
         services.AddSingleton<ITokenService, CsRaiders.Api.Infrastructure.Security.TokenService>();
+        services.AddScoped<IAppSettingsProvider, AppSettingsProvider>();
 
         return services;
     }

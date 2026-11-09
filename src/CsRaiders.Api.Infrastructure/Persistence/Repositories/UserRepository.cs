@@ -3,11 +3,26 @@ using CsRaiders.Api.Application.Common.Models;
 using CsRaiders.Api.Domain.Entities;
 using CsRaiders.Api.Domain.ValueObjects;
 using Microsoft.EntityFrameworkCore;
+using CsRaiders.Api.Domain.Constants;
+using CsRaiders.Api.Domain.Enums;
 
 namespace CsRaiders.Api.Infrastructure.Persistence.Repositories;
 
 public sealed class UserRepository(AppDbContext db) : IUserRepository
 {
+    public async Task<(bool HasSessionMulti, bool IsStudent)> GetAuthenticationPolicyAsync(Guid userId, CancellationToken ct = default)
+    {
+        var roleIds = await db.UserRoles.Where(x => x.UserId == userId).Select(x => x.RoleId).ToListAsync(ct);
+        var roles = await db.Roles.Where(x => roleIds.Contains(x.Id)).ToListAsync(ct);
+        var overrides = await db.UserPermissions.Where(x => x.UserId == userId && x.Permission == PermissionCatalog.SessionMulti).ToListAsync(ct);
+        var grantedByRole = roles.Any(r => r.Permissions.Contains(PermissionCatalog.SessionMulti));
+        var denied = overrides.Any(o => o.Effect == PermissionEffect.Deny);
+        var granted = overrides.Any(o => o.Effect == PermissionEffect.Grant);
+        return (HasSessionMulti: !denied && (grantedByRole || granted), IsStudent: roles.Any(r => r.Scope == RoleScope.Student));
+    }
+
+    public Task AcquireLoginLockAsync(Guid userId, CancellationToken ct = default) =>
+        db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({userId}::text, 0))", ct);
     public async Task<User?> FindByEmailAsync(Email email, bool track = false, bool includeDeleted = false, CancellationToken ct = default)
     {
         var query = track ? db.Users.AsQueryable() : db.Users.AsNoTracking();
