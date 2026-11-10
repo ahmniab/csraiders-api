@@ -28,12 +28,17 @@ public sealed class Session : Entity
 
     public static Session Open(Guid userId, byte[] refreshTokenHash, string deviceFp, IPAddress? ip, string? userAgent,
                                bool isStudentSession, bool enforceSingleSession, DateTimeOffset now)
+        => Open(IdGenerator.New(), userId, refreshTokenHash, deviceFp, ip, userAgent, isStudentSession, enforceSingleSession, now);
+
+    public static Session Open(Guid sessionId, Guid userId, byte[] refreshTokenHash, string deviceFp, IPAddress? ip, string? userAgent,
+                               bool isStudentSession, bool enforceSingleSession, DateTimeOffset now)
     {
         if (refreshTokenHash.Length != 32) throw new ArgumentException("Expected a SHA-256 hash.", nameof(refreshTokenHash));
         ArgumentException.ThrowIfNullOrWhiteSpace(deviceFp);
 
         return new Session
         {
+            Id = sessionId,
             UserId = userId,
             RefreshTokenHash = refreshTokenHash,
             DeviceFp = deviceFp,

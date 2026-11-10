@@ -4,6 +4,7 @@ using CsRaiders.Api.Application.Common.Interfaces.Repositories;
 using CsRaiders.Api.Application.Common.Interfaces.Security;
 using CsRaiders.Api.Application.Common.Abstractions;
 using CsRaiders.Api.Domain.Entities;
+using CsRaiders.Api.Domain.Common;
 using CsRaiders.Api.Domain.Enums;
 using CsRaiders.Api.Domain.Policies;
 using CsRaiders.Api.Domain.ValueObjects;
@@ -87,8 +88,9 @@ public sealed class LoginCommandHandler(
         var decision = SessionPolicy.Decide(hasMulti, activeCount, cap);
         await ApplySessionPolicyAsync(user.Id, activeSessions, decision, now, ct);
 
-        var refresh = tokens.CreateRefreshToken();
-        var session = Session.Open(user.Id, tokens.HashRefreshToken(refresh), request.DeviceFingerprint,
+        var sessionId = IdGenerator.New();
+        var refresh = tokens.CreateRefreshToken(user.Id, sessionId, now);
+        var session = Session.Open(sessionId, user.Id, tokens.HashRefreshToken(refresh), request.DeviceFingerprint,
             request.Ip, request.UserAgent, policy.IsStudent,
             decision.EnforceSingleSession, now);
         await sessions.AddAsync(session, ct);

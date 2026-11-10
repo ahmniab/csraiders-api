@@ -33,15 +33,17 @@ public sealed class RefreshTokenCommandHandler(
         if (string.IsNullOrWhiteSpace(request.DeviceFingerprint))
             return RefreshTokenResult.Failure("session_superseded");
 
-        byte[] presentedHash;
-        try { presentedHash = tokens.HashRefreshToken(request.RefreshToken); }
-        catch (Exception ex) when (ex is FormatException or ArgumentException) { return RefreshTokenResult.Failure("invalid_grant"); }
-
         var now = clock.UtcNow;
-        var session = await sessions.FindByRefreshHashForUpdateAsync(presentedHash, ct);
-        if (session is null) return RefreshTokenResult.Failure("invalid_grant");
+        if (!tokens.TryValidateRefreshToken(request.RefreshToken, now, out var claims))
+            return RefreshTokenResult.Failure("invalid_grant");
 
-        var nextRefresh = tokens.CreateRefreshToken();
+        var session = await sessions.FindByIdForUpdateAsync(claims.SessionId, ct);
+        if (session is null) return RefreshTokenResult.Failure("invalid_grant");
+        if (session.UserId != claims.UserId) return RefreshTokenResult.Failure("invalid_grant");
+
+        var presentedHash = tokens.HashRefreshToken(request.RefreshToken);
+
+        var nextRefresh = tokens.CreateRefreshToken(session.UserId, session.Id, now);
         var outcome = session.TryRotate(presentedHash, tokens.HashRefreshToken(nextRefresh), request.DeviceFingerprint, now);
         switch (outcome)
         {

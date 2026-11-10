@@ -9,6 +9,7 @@ public interface ISessionRepository
     Task<Session?> FindByIdAsync(Guid sessionId, bool track = false, CancellationToken ct = default);
     Task<Session?> FindByRefreshHashAsync(byte[] hash, bool track = false, CancellationToken ct = default);
     Task<Session?> FindByRefreshHashForUpdateAsync(byte[] hash, CancellationToken ct = default);
+    Task<Session?> FindByIdForUpdateAsync(Guid sessionId, CancellationToken ct = default);
     Task<IReadOnlyList<Session>> FindActiveByUserIdAsync(Guid userId, DateTimeOffset? now = null, bool track = false, CancellationToken ct = default);
     Task<int> CountActiveByUserIdAsync(Guid userId, DateTimeOffset? now = null, CancellationToken ct = default);
     Task<IReadOnlyList<SessionSummary>> ListByUserIdAsync(Guid userId, CancellationToken ct = default);

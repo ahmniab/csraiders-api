@@ -35,6 +35,11 @@ public sealed class SessionRepository(AppDbContext db) : ISessionRepository, ISe
             .FromSqlInterpolated($"SELECT sessions.*, sessions.xmin FROM sessions WHERE refresh_token_hash = {hash} OR previous_refresh_token_hash = {hash} FOR UPDATE")
             .SingleOrDefaultAsync(ct);
 
+    public Task<Session?> FindByIdForUpdateAsync(Guid sessionId, CancellationToken ct = default) =>
+        db.Sessions
+            .FromSqlInterpolated($"SELECT sessions.*, sessions.xmin FROM sessions WHERE id = {sessionId} FOR UPDATE")
+            .SingleOrDefaultAsync(ct);
+
     public async Task<IReadOnlyList<Session>> FindActiveByUserIdAsync(Guid userId, DateTimeOffset? now = null, bool track = false, CancellationToken ct = default)
     {
         var query = track ? db.Sessions.AsQueryable() : db.Sessions.AsNoTracking();
