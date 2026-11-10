@@ -6,4 +6,7 @@ public interface ISessionCookieWriter
 {
     string GetOrCreateDeviceFingerprint(string? existing);
     IReadOnlyList<SessionCookie> CreateLoginCookies(string refreshToken, string deviceFingerprint, bool includeDevice);
+    SessionCookie CreateRefreshCookie(string refreshToken);
+    SessionCookie CreateClearRefreshCookie();
+    SessionCookie CreateClearDeviceCookie();
 }

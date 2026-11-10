@@ -47,6 +47,26 @@ public class AuthDomainTests
         s.TryRotate(Hash(2), Hash(4), "fp", Now).Should().Be(RefreshOutcome.Inactive);   // RT2 is dead too
     }
 
+    [Fact]
+    public void Retired_refresh_token_rotates_again_inside_grace_window()
+    {
+        var s = Session.Open(Guid.NewGuid(), Hash(1), "fp", null, null, true, true, Now);
+
+        s.TryRotate(Hash(1), Hash(2), "fp", Now).Should().Be(RefreshOutcome.Rotated);
+        s.TryRotate(Hash(1), Hash(3), "fp", Now.AddSeconds(15)).Should().Be(RefreshOutcome.Rotated);
+        s.RevokeReason.Should().BeNull();
+    }
+
+    [Fact]
+    public void Retired_refresh_token_after_grace_compromises_session()
+    {
+        var s = Session.Open(Guid.NewGuid(), Hash(1), "fp", null, null, true, true, Now);
+
+        s.TryRotate(Hash(1), Hash(2), "fp", Now).Should().Be(RefreshOutcome.Rotated);
+        s.TryRotate(Hash(1), Hash(3), "fp", Now.AddSeconds(16)).Should().Be(RefreshOutcome.ReuseDetected);
+        s.RevokeReason.Should().Be(SessionRevokeReason.ReuseDetected);
+    }
+
     [Fact]                                                      // FR-64
     public void Tenth_failure_locks_and_the_lock_expires()
     {

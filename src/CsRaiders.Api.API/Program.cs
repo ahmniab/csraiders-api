@@ -14,6 +14,7 @@ using System.Text;
 using System.Threading.RateLimiting;
 using Serilog;
 using CsRaiders.Api.API.Services;
+using CsRaiders.Api.API.Filters;
 using CsRaiders.Api.Application.Common.Abstractions;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -46,6 +47,7 @@ builder.Services.AddOptions<AuthOptions>()
 // ── Services ────────────────────────────────────────────────
 builder.Services.AddControllers();
 builder.Services.AddScoped<ISessionCookieWriter, SessionCookieWriter>();
+builder.Services.AddScoped<OriginAndHeaderValidationFilter>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 

@@ -27,6 +27,14 @@ public sealed class SessionRepository(AppDbContext db) : ISessionRepository, ISe
             s.PreviousRefreshTokenHash == hash, ct);
     }
 
+    public Task<Session?> FindByRefreshHashForUpdateAsync(byte[] hash, CancellationToken ct = default) =>
+        db.Sessions
+            // xmin is a PostgreSQL system column and is not included by SELECT *
+            // when EF wraps this locking query as a derived table. Project it
+            // explicitly because Entity.Version is mapped as the concurrency token.
+            .FromSqlInterpolated($"SELECT sessions.*, sessions.xmin FROM sessions WHERE refresh_token_hash = {hash} OR previous_refresh_token_hash = {hash} FOR UPDATE")
+            .SingleOrDefaultAsync(ct);
+
     public async Task<IReadOnlyList<Session>> FindActiveByUserIdAsync(Guid userId, DateTimeOffset? now = null, bool track = false, CancellationToken ct = default)
     {
         var query = track ? db.Sessions.AsQueryable() : db.Sessions.AsNoTracking();

@@ -2,11 +2,13 @@ using CsRaiders.Api.Application.Features.Auth.Commands.Register;
 using CsRaiders.Api.Application.Features.Auth.Commands.ResendOtp;
 using CsRaiders.Api.Application.Features.Auth.Commands.VerifyOtp;
 using CsRaiders.Api.Application.Features.Auth.Commands.Login;
+using CsRaiders.Api.Application.Features.Auth.Commands.Refresh;
 using CsRaiders.Api.Application.Common.Abstractions;
 using Mediator;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using CsRaiders.Api.API.Services;
+using CsRaiders.Api.API.Filters;
 
 namespace CsRaiders.Api.API.Controllers;
 
@@ -69,8 +71,51 @@ public sealed class AuthController(IMediator mediator, ISessionCookieWriter cook
                 Secure = true, HttpOnly = true, SameSite = SameSiteMode.Strict,
                 Path = "/", MaxAge = cookie.MaxAge, IsEssential = true
             });
+        return Ok(new
+        {
+            accessToken = result.AccessToken,
+            // refreshToken = result.RefreshToken,
+            sessionId = result.SessionId,
+        });
+    }
+
+    [HttpPost("refresh")]
+    [ServiceFilter(typeof(OriginAndHeaderValidationFilter))]
+    public async Task<IActionResult> Refresh(CancellationToken ct)
+    {
+        var result = await mediator.Send(new RefreshTokenCommand(
+            Request.Cookies[SessionCookieWriter.RefreshCookie],
+            Request.Cookies[SessionCookieWriter.DeviceCookie]), ct);
+
+        if (!result.Succeeded)
+        {
+            ClearAuthCookies();
+            var status = result.ErrorCode is "invalid_grant" or "session_superseded" or "session_compromised"
+                ? StatusCodes.Status401Unauthorized : StatusCodes.Status400BadRequest;
+            var message = result.ErrorCode switch
+            {
+                "session_compromised" => "The session has been compromised.",
+                "session_superseded" => "The session is no longer active.",
+                _ => "The refresh grant is invalid."
+            };
+            return ProblemResult(status, result.ErrorCode ?? "invalid_grant", message);
+        }
+
+        AppendCookie(cookies.CreateRefreshCookie(result.RefreshToken!));
         return Ok(new { accessToken = result.AccessToken, sessionId = result.SessionId });
     }
+
+    private void ClearAuthCookies()
+    {
+        AppendCookie(cookies.CreateClearRefreshCookie());
+        AppendCookie(cookies.CreateClearDeviceCookie());
+    }
+
+    private void AppendCookie(SessionCookie cookie) => Response.Cookies.Append(cookie.Name, cookie.Value, new CookieOptions
+    {
+        Secure = true, HttpOnly = true, SameSite = SameSiteMode.Strict,
+        Path = "/", MaxAge = cookie.MaxAge, IsEssential = true
+    });
 
     private AcceptedResult AcceptedResult() => base.Accepted(value: AcceptedPayload);
 

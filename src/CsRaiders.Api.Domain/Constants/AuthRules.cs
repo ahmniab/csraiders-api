@@ -6,6 +6,7 @@ public static class AuthRules
     public static readonly TimeSpan AccessTokenLifetime     = TimeSpan.FromMinutes(15);
     public static readonly TimeSpan RefreshAbsoluteLifetime = TimeSpan.FromDays(30);
     public static readonly TimeSpan RefreshIdleLifetime     = TimeSpan.FromDays(14);
+    public static readonly TimeSpan RefreshReplayGraceWindow = TimeSpan.FromSeconds(15);
     public static readonly TimeSpan SessionTouchThrottle    = TimeSpan.FromMinutes(1);
 
     // Passwords (FR-60, NIST 800-63B)

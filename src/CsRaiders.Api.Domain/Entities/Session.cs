@@ -57,17 +57,27 @@ public sealed class Session : Entity
     public RefreshOutcome TryRotate(byte[] presentedHash, byte[] newHash, string deviceFp, DateTimeOffset now)
     {
         if (RevokedAt is not null) return RefreshOutcome.Inactive;
+        if (now >= ExpiresAt || now >= IdleExpiresAt) return RefreshOutcome.Inactive;
+        if (!string.Equals(DeviceFp, deviceFp, StringComparison.Ordinal)) return RefreshOutcome.DeviceMismatch;
 
         if (PreviousRefreshTokenHash is not null && Same(PreviousRefreshTokenHash, presentedHash))
         {
+            if (RotatedAt is { } rotatedAt && now - rotatedAt <= AuthRules.RefreshReplayGraceWindow)
+            {
+                return Rotate(newHash, now);
+            }
+
             Revoke(SessionRevokeReason.ReuseDetected, now);
             return RefreshOutcome.ReuseDetected;
         }
 
         if (!Same(RefreshTokenHash, presentedHash)) return RefreshOutcome.InvalidToken;
-        if (now >= ExpiresAt || now >= IdleExpiresAt) return RefreshOutcome.Inactive;
-        if (!string.Equals(DeviceFp, deviceFp, StringComparison.Ordinal)) return RefreshOutcome.DeviceMismatch;
 
+        return Rotate(newHash, now);
+    }
+
+    private RefreshOutcome Rotate(byte[] newHash, DateTimeOffset now)
+    {
         PreviousRefreshTokenHash = RefreshTokenHash;
         RefreshTokenHash = newHash;
         RotatedAt = now;

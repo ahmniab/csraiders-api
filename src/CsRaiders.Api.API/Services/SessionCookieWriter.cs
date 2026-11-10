@@ -17,4 +17,8 @@ public sealed class SessionCookieWriter : ISessionCookieWriter
         includeDevice
             ? [new(RefreshCookie, refreshToken, TimeSpan.FromDays(30)), new(DeviceCookie, deviceFingerprint, TimeSpan.FromDays(365))]
             : [new(RefreshCookie, refreshToken, TimeSpan.FromDays(30))];
+
+    public SessionCookie CreateRefreshCookie(string refreshToken) => new(RefreshCookie, refreshToken, TimeSpan.FromDays(30));
+    public SessionCookie CreateClearRefreshCookie() => new(RefreshCookie, string.Empty, TimeSpan.Zero);
+    public SessionCookie CreateClearDeviceCookie() => new(DeviceCookie, string.Empty, TimeSpan.Zero);
 }
