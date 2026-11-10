@@ -13,6 +13,6 @@ public sealed class RegistrationEndpointTests
         Assert.NotEmpty(controller.GetCustomAttributes(typeof(AllowAnonymousAttribute), true));
         var routes = controller.GetMethods().SelectMany(m => m.GetCustomAttributes(typeof(HttpPostAttribute), true)
             .Cast<HttpPostAttribute>().Select(a => a.Template ?? string.Empty)).ToArray();
-        Assert.Equal(new[] { "login", "refresh", "register", "resend-otp", "verify-otp" }, routes.Order());
+        Assert.Equal(new[] { "change-password", "forgot-password", "login", "logout", "refresh", "register", "resend-otp", "reset-password", "verify-otp" }, routes.Order());
     }
 }

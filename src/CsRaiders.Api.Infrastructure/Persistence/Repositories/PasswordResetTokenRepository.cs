@@ -21,6 +21,9 @@ public sealed class PasswordResetTokenRepository(AppDbContext db) : IPasswordRes
             .ToListAsync(ct);
     }
 
+    public Task<int> CountIssuedSinceAsync(Guid userId, DateTimeOffset since, CancellationToken ct = default) =>
+        db.PasswordResetTokens.CountAsync(t => t.UserId == userId && t.CreatedAt >= since, ct);
+
     public async Task AddAsync(PasswordResetToken token, CancellationToken ct = default)
     {
         await db.PasswordResetTokens.AddAsync(token, ct);

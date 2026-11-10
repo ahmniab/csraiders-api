@@ -11,7 +11,7 @@ public enum RoleScope { Student, Staff }
 public enum SessionRevokeReason
 {
     Superseded, CapExceeded, PolicyReduced, ReuseDetected,
-    Logout, PasswordReset, AdminRevoked,
+    Logout, PasswordReset, PasswordChanged, AdminRevoked,
     AccountDisabled   // FR-63: suspension / deletion
 }
 

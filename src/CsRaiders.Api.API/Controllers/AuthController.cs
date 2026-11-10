@@ -3,6 +3,8 @@ using CsRaiders.Api.Application.Features.Auth.Commands.ResendOtp;
 using CsRaiders.Api.Application.Features.Auth.Commands.VerifyOtp;
 using CsRaiders.Api.Application.Features.Auth.Commands.Login;
 using CsRaiders.Api.Application.Features.Auth.Commands.Refresh;
+using CsRaiders.Api.Application.Features.Auth.Commands.ForgotPassword;
+using CsRaiders.Api.Application.Features.Auth.Commands.ChangePassword;
 using CsRaiders.Api.Application.Common.Abstractions;
 using Mediator;
 using Microsoft.AspNetCore.Authorization;
@@ -123,6 +125,40 @@ public sealed class AuthController(IMediator mediator, ISessionCookieWriter cook
         return Ok(new { loggedOut = true });
     }
 
+    [HttpPost("forgot-password")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ForgotPassword(ForgotPasswordRequest request, CancellationToken ct)
+    {
+        var result = await mediator.Send(new ForgotPasswordCommand(request.Email, HttpContext.Connection.RemoteIpAddress), ct);
+        return result.CapacityExhausted
+            ? ProblemResult(503, "capacity_exhausted", "The service is temporarily unable to process this request.")
+            : AcceptedResult();
+    }
+
+    [HttpPost("reset-password")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ResetPassword(ResetPasswordRequest request, CancellationToken ct)
+    {
+        var result = await mediator.Send(new ResetPasswordCommand(request.Token, request.Password), ct);
+        return result.Succeeded
+            ? Ok(new { message = "Password reset." })
+            : ProblemResult(400, result.ErrorCode ?? "invalid_or_expired_reset_token", "The reset token is invalid or expired.");
+    }
+
+    [HttpPost("change-password")]
+    [Authorize(Policy = AuthPolicies.AuthenticatedOnly)]
+    public async Task<IActionResult> ChangePassword(ChangePasswordRequest request, CancellationToken ct)
+    {
+        var result = await mediator.Send(new ChangePasswordCommand(
+            Guid.Parse(User.FindFirstValue("sub")!), Guid.Parse(User.FindFirstValue("sid")!),
+            request.CurrentPassword, request.NewPassword), ct);
+        if (result.CapacityExhausted)
+            return ProblemResult(503, "capacity_exhausted", "The service is temporarily unable to process this request.");
+        return result.Succeeded
+            ? Ok(new { message = "Password changed." })
+            : ProblemResult(401, result.ErrorCode ?? "invalid_credentials", "The current password is incorrect.");
+    }
+
     private void ClearAuthCookies()
     {
         AppendCookie(cookies.CreateClearRefreshCookie());
@@ -145,3 +181,6 @@ public sealed record RegisterRequest(string Email, string Password, string? Name
 public sealed record VerifyOtpRequest(string Email, string Code);
 public sealed record ResendOtpRequest(string Email);
 public sealed record LoginRequest(string Email, string Password);
+public sealed record ForgotPasswordRequest(string Email);
+public sealed record ResetPasswordRequest(string Token, string Password);
+public sealed record ChangePasswordRequest(string CurrentPassword, string NewPassword);

@@ -98,9 +98,15 @@ public static class CsRaidersApiServiceExtensions
             options.MapInboundClaims = false;
             options.TokenValidationParameters = new TokenValidationParameters
             {
-                ValidateIssuerSigningKey = true, IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey)),
-                ValidateIssuer = true, ValidIssuer = origin, ValidateAudience = true, ValidAudience = origin,
-                ValidateLifetime = true, ClockSkew = TimeSpan.FromSeconds(30), ValidAlgorithms = [SecurityAlgorithms.HmacSha256]
+                ValidateIssuerSigningKey = true, 
+                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey)),
+                ValidateIssuer = true, 
+                ValidIssuer = origin, 
+                ValidateAudience = true, 
+                ValidAudience = origin,
+                ValidateLifetime = true, 
+                ClockSkew = TimeSpan.FromSeconds(30), 
+                ValidAlgorithms = [SecurityAlgorithms.HmacSha256]
             };
         });
 
