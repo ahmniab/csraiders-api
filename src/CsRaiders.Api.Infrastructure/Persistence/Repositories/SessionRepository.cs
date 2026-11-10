@@ -69,23 +69,19 @@ public sealed class SessionRepository(AppDbContext db) : ISessionRepository, ISe
         return await query.CountAsync(ct);
     }
 
-    public async Task<IReadOnlyList<SessionSummary>> ListByUserIdAsync(Guid userId, CancellationToken ct = default)
+    public async Task<IReadOnlyList<SessionSummary>> ListByUserIdAsync(Guid userId, DateTimeOffset now, CancellationToken ct = default)
     {
         return await db.Sessions
             .AsNoTracking()
-            .Where(s => s.UserId == userId)
+            .Where(s => s.UserId == userId && s.RevokedAt == null && now < s.ExpiresAt && now < s.IdleExpiresAt)
             .OrderByDescending(s => s.LastSeenAt)
             .Select(s => new SessionSummary(
                 s.Id,
-                s.DeviceFp,
+                s.UserAgent ?? "Unknown device",
                 s.Ip,
                 s.UserAgent,
-                s.IsStudentSession,
                 s.CreatedAt,
-                s.LastSeenAt,
-                s.ExpiresAt,
-                s.RevokedAt,
-                s.RevokeReason))
+                s.LastSeenAt))
             .ToListAsync(ct);
     }
 

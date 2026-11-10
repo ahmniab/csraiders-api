@@ -16,6 +16,8 @@ using Serilog;
 using CsRaiders.Api.API.Services;
 using CsRaiders.Api.API.Filters;
 using CsRaiders.Api.Application.Common.Abstractions;
+using CsRaiders.Api.API.Authorization;
+using Microsoft.OpenApi;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseSerilog((_, logger) => logger
@@ -46,10 +48,27 @@ builder.Services.AddOptions<AuthOptions>()
 
 // ── Services ────────────────────────────────────────────────
 builder.Services.AddControllers();
+builder.Services.AddAuthorization(AuthPolicies.AddAuthPolicies);
 builder.Services.AddScoped<ISessionCookieWriter, SessionCookieWriter>();
 builder.Services.AddScoped<OriginAndHeaderValidationFilter>();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.AddSecurityDefinition("bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "Enter the access token returned by login. Example: Bearer {token}"
+    });
+
+    options.AddSecurityRequirement(document => new OpenApiSecurityRequirement
+    {
+        [new OpenApiSecuritySchemeReference("bearer", document)] = []
+    });
+});
 
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {

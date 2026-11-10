@@ -9,17 +9,20 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using CsRaiders.Api.API.Services;
 using CsRaiders.Api.API.Filters;
+using CsRaiders.Api.API.Authorization;
+using CsRaiders.Api.Application.Features.Sessions.Commands;
+using System.Security.Claims;
 
 namespace CsRaiders.Api.API.Controllers;
 
 [ApiController]
-[AllowAnonymous]
 [Route("api/v1/auth")]
 public sealed class AuthController(IMediator mediator, ISessionCookieWriter cookies) : ControllerBase
 {
     private static readonly object AcceptedPayload = new { message = "If the account can be registered, a verification message will be sent." };
 
     [HttpPost("register")]
+    [AllowAnonymous]
     public async Task<IActionResult> Register(RegisterRequest request, CancellationToken ct)
     {
         var result = await mediator.Send(new RegisterCommand(request.Email, request.Password, request.Name), ct);
@@ -31,6 +34,7 @@ public sealed class AuthController(IMediator mediator, ISessionCookieWriter cook
     }
 
     [HttpPost("verify-otp")]
+    [AllowAnonymous]
     public async Task<IActionResult> VerifyOtp(VerifyOtpRequest request, CancellationToken ct)
     {
         var result = await mediator.Send(new VerifyOtpCommand(request.Email, request.Code), ct);
@@ -40,6 +44,7 @@ public sealed class AuthController(IMediator mediator, ISessionCookieWriter cook
     }
 
     [HttpPost("resend-otp")]
+    [AllowAnonymous]
     public async Task<IActionResult> ResendOtp(ResendOtpRequest request, CancellationToken ct)
     {
         var result = await mediator.Send(new ResendOtpCommand(request.Email), ct);
@@ -49,6 +54,7 @@ public sealed class AuthController(IMediator mediator, ISessionCookieWriter cook
     }
 
     [HttpPost("login")]
+    [AllowAnonymous]
     public async Task<IActionResult> Login(LoginRequest request, CancellationToken ct)
     {
         var result = await mediator.Send(new LoginCommand(
@@ -80,6 +86,7 @@ public sealed class AuthController(IMediator mediator, ISessionCookieWriter cook
     }
 
     [HttpPost("refresh")]
+    [AllowAnonymous]
     [ServiceFilter(typeof(OriginAndHeaderValidationFilter))]
     public async Task<IActionResult> Refresh(CancellationToken ct)
     {
@@ -103,6 +110,17 @@ public sealed class AuthController(IMediator mediator, ISessionCookieWriter cook
 
         AppendCookie(cookies.CreateRefreshCookie(result.RefreshToken!));
         return Ok(new { accessToken = result.AccessToken, sessionId = result.SessionId });
+    }
+
+    [HttpPost("logout")]
+    [Authorize(Policy = AuthPolicies.AuthenticatedOnly)]
+    [ServiceFilter(typeof(OriginAndHeaderValidationFilter))]
+    public async Task<IActionResult> Logout(CancellationToken ct)
+    {
+        await mediator.Send(new LogoutCommand(Guid.Parse(User.FindFirstValue("sub")!),
+            Guid.Parse(User.FindFirstValue("sid")!)), ct);
+        ClearAuthCookies();
+        return Ok(new { loggedOut = true });
     }
 
     private void ClearAuthCookies()

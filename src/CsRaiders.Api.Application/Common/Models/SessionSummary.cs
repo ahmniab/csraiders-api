@@ -5,12 +5,8 @@ namespace CsRaiders.Api.Application.Common.Models;
 
 public sealed record SessionSummary(
     Guid Id,
-    string DeviceFp,
+    string DeviceLabel,
     IPAddress? Ip,
     string? UserAgent,
-    bool IsStudentSession,
     DateTimeOffset CreatedAt,
-    DateTimeOffset LastSeenAt,
-    DateTimeOffset ExpiresAt,
-    DateTimeOffset? RevokedAt,
-    SessionRevokeReason? RevokeReason);
+    DateTimeOffset LastSeenAt);
