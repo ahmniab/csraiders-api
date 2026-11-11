@@ -19,7 +19,7 @@ public sealed class ConsoleEmailSender(ILogger<ConsoleEmailSender> logger) : IEm
     }
 }
 
-public sealed class EmailSenderWorker(IEmailQueue queue, IEmailSender sender, ILogger<EmailSenderWorker> logger) : BackgroundService
+public sealed class EmailSenderWorker(IEmailQueue queue, IEmailSender sender, ILogger<EmailSenderWorker> logger, IAuthMetricsRecorder metrics) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -34,10 +34,12 @@ public sealed class EmailSenderWorker(IEmailQueue queue, IEmailSender sender, IL
                     using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
                     timeout.CancelAfter(TimeSpan.FromSeconds(10));
                     await sender.SendAsync(message, timeout.Token);
+                    metrics.Increment("email_queue.sent");
                     break;
                 }
                 catch (Exception ex) when (attempt < delays.Length - 1)
                 {
+                    metrics.Increment("email_queue.retry");
                     logger.LogWarning(ex, "Email delivery attempt {Attempt} failed; recipient redacted", attempt + 1);
                 }
             }

@@ -10,4 +10,5 @@ public interface IPasswordResetTokenRepository
     Task AddAsync(PasswordResetToken token, CancellationToken ct = default);
     void Update(PasswordResetToken token);
     Task InvalidateAllByUserIdAsync(Guid userId, DateTimeOffset now, CancellationToken ct = default);
+    Task<int> DeleteStaleAsync(DateTimeOffset cutoff, CancellationToken ct = default);
 }

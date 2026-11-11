@@ -10,6 +10,9 @@ namespace CsRaiders.Api.Infrastructure.Persistence.Repositories;
 
 public sealed class UserRepository(AppDbContext db) : IUserRepository
 {
+    public async Task<IReadOnlyList<Guid>> FindIdsByRoleIdAsync(Guid roleId, CancellationToken ct = default) =>
+        await db.UserRoles.AsNoTracking().Where(x => x.RoleId == roleId).Select(x => x.UserId).ToListAsync(ct);
+
     public async Task<(bool HasSessionMulti, bool IsStudent)> GetAuthenticationPolicyAsync(Guid userId, CancellationToken ct = default)
     {
         var roleIds = await db.UserRoles.Where(x => x.UserId == userId).Select(x => x.RoleId).ToListAsync(ct);

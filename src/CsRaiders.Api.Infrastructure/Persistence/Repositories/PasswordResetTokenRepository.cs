@@ -40,4 +40,7 @@ public sealed class PasswordResetTokenRepository(AppDbContext db) : IPasswordRes
             .Where(t => t.UserId == userId && t.UsedAt == null)
             .ExecuteUpdateAsync(setter => setter.SetProperty(t => t.UsedAt, now), ct);
     }
+
+    public Task<int> DeleteStaleAsync(DateTimeOffset cutoff, CancellationToken ct = default) =>
+        db.PasswordResetTokens.Where(t => t.ExpiresAt < cutoff || (t.UsedAt != null && t.UsedAt < cutoff)).ExecuteDeleteAsync(ct);
 }

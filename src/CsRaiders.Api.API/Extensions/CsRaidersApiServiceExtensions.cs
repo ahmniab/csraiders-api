@@ -10,6 +10,7 @@ using CsRaiders.Api.Application.Common.Abstractions;
 using CsRaiders.Api.Application.DependencyInjection;
 using CsRaiders.Api.Infrastructure.DependencyInjection;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
@@ -53,6 +54,9 @@ public static class CsRaidersApiServiceExtensions
         // ── Services ────────────────────────────────────────────────
         builder.Services.AddControllers();
         builder.Services.AddAuthorization(AuthPolicies.AddAuthPolicies);
+        builder.Services.AddMemoryCache();
+        builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionAuthorizationPolicyProvider>();
+        builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
         builder.Services.AddScoped<ISessionCookieWriter, SessionCookieWriter>();
         builder.Services.AddScoped<OriginAndHeaderValidationFilter>();
         builder.Services.AddEndpointsApiExplorer();

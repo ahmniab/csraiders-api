@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CsRaiders.Api.Infrastructure.Services;
 
-public sealed class SecurityAuditWriter(IDbContextFactory<AppDbContext> factory) : ISecurityAuditWriter
+public sealed class SecurityAuditWriter(IDbContextFactory<AppDbContext> factory, IAuthMetricsRecorder metrics) : ISecurityAuditWriter
 {
     private static readonly HashSet<string> Denied = new(StringComparer.OrdinalIgnoreCase)
     { "password_hash", "otp_hash", "refresh_token_hash", "previous_refresh_token_hash", "token_hash", "password", "otp", "refresh_token" };
@@ -16,6 +16,7 @@ public sealed class SecurityAuditWriter(IDbContextFactory<AppDbContext> factory)
     public async Task WriteAsync(string eventName, Guid? userId = null, Email? email = null, IPAddress? ip = null,
         object? details = null, CancellationToken ct = default)
     {
+        metrics.Increment($"security_event.{eventName}");
         await using var db = await factory.CreateDbContextAsync(ct);
         var node = details is null ? new JsonObject() : JsonSerializer.SerializeToNode(details);
         Redact(node);

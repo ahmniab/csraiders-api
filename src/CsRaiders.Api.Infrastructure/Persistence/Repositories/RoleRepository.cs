@@ -43,6 +43,9 @@ public sealed class RoleRepository(AppDbContext db) : IRoleRepository
             .ToListAsync(ct);
     }
 
+    public Task<int> CountUsersAsync(Guid roleId, CancellationToken ct = default) =>
+        db.UserRoles.CountAsync(x => x.RoleId == roleId, ct);
+
     public async Task AddAsync(Role role, CancellationToken ct = default)
     {
         await db.Roles.AddAsync(role, ct);
@@ -52,4 +55,6 @@ public sealed class RoleRepository(AppDbContext db) : IRoleRepository
     {
         db.Roles.Update(role);
     }
+
+    public void Delete(Role role) => db.Roles.Remove(role);
 }

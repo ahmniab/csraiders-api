@@ -13,7 +13,7 @@ public sealed class RefreshRotationTests
 
         Assert.Equal(RefreshOutcome.Rotated, session.TryRotate(Hash(1), Hash(2), "device", now));
         Assert.Equal(RefreshOutcome.Rotated, session.TryRotate(Hash(1), Hash(3), "device", now.AddSeconds(15)));
-        Assert.Equal(RefreshOutcome.ReuseDetected, session.TryRotate(Hash(1), Hash(4), "device", now.AddSeconds(31)));
+        Assert.Equal(RefreshOutcome.ReuseDetected, session.TryRotate(Hash(2), Hash(4), "device", now.AddSeconds(31)));
         Assert.Equal(SessionRevokeReason.ReuseDetected, session.RevokeReason);
     }
 

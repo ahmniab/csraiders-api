@@ -164,4 +164,10 @@ public sealed class SessionRepository(AppDbContext db) : ISessionRepository, ISe
             .ExecuteUpdateAsync(setter => setter
                 .SetProperty(s => s.EnforceSingleSession, enforce), ct);
     }
+
+    public Task<int> DeleteStaleAsync(DateTimeOffset now, DateTimeOffset cutoff, CancellationToken ct = default) =>
+        db.Sessions.Where(s =>
+                (s.RevokedAt != null && s.RevokedAt < cutoff) ||
+                (s.RevokedAt == null && s.ExpiresAt < cutoff && s.ExpiresAt < now))
+            .ExecuteDeleteAsync(ct);
 }

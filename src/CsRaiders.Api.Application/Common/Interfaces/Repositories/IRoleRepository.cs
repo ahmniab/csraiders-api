@@ -9,7 +9,9 @@ public interface IRoleRepository
     Task<IReadOnlyList<Role>> FindAllAsync(CancellationToken ct = default);
     Task<IReadOnlyList<Role>> FindByIdsAsync(IEnumerable<Guid> ids, CancellationToken ct = default);
     Task<IReadOnlyList<Role>> ListAsync(CancellationToken ct = default);
+    Task<int> CountUsersAsync(Guid roleId, CancellationToken ct = default);
 
     Task AddAsync(Role role, CancellationToken ct = default);
     void Update(Role role);
+    void Delete(Role role);
 }

@@ -60,6 +60,14 @@ dotnet test tests/CsRaiders.Api.IntegrationTests         # Testcontainers; SEC-0
 
 Expected: all green on a healthy run; integration suite provisions a throwaway PostgreSQL container; no external Redis/broker ever required anywhere.
 
+### Current implementation validation
+
+The Phase 9/10/11 test artifacts and quickstart scenarios are implemented. Execution in
+this workspace is currently blocked before compilation by the installed .NET SDK's
+missing workload resolver directories (`Microsoft.NET.SDK.WorkloadAutoImportPropsLocator`
+and `Microsoft.NET.SDK.WorkloadManifestTargetsLocator`); therefore SEC-01…SEC-18 are
+recorded as **not executed in this environment**, rather than reported as passing.
+
 ## 5. Acceptance gates (must hold before /speckit.tasks sign-off)
 
 1. Every SEC from research/verification table above passes (18/18).

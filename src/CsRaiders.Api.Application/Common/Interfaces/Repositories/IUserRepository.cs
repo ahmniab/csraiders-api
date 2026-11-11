@@ -12,6 +12,7 @@ public interface IUserRepository
     /// <summary>Loads User + Roles + PermissionOverrides in one split query for permission resolution.</summary>
     Task<User?> FindByIdWithPermissionsAsync(Guid id, bool track = false, CancellationToken ct = default);
     Task<(bool HasSessionMulti, bool IsStudent)> GetAuthenticationPolicyAsync(Guid userId, CancellationToken ct = default);
+    Task<IReadOnlyList<Guid>> FindIdsByRoleIdAsync(Guid roleId, CancellationToken ct = default);
     Task AcquireLoginLockAsync(Guid userId, CancellationToken ct = default);
 
     Task<bool> ExistsAsync(Email email, CancellationToken ct = default);

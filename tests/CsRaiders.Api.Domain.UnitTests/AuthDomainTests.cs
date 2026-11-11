@@ -41,7 +41,7 @@ public class AuthDomainTests
         var s = Session.Open(Guid.NewGuid(), Hash(1), "fp", null, null, true, true, Now);
 
         s.TryRotate(Hash(1), Hash(2), "fp", Now).Should().Be(RefreshOutcome.Rotated);
-        s.TryRotate(Hash(1), Hash(3), "fp", Now).Should().Be(RefreshOutcome.ReuseDetected);
+        s.TryRotate(Hash(1), Hash(3), "fp", Now.AddSeconds(16)).Should().Be(RefreshOutcome.ReuseDetected);
 
         s.RevokeReason.Should().Be(SessionRevokeReason.ReuseDetected);
         s.TryRotate(Hash(2), Hash(4), "fp", Now).Should().Be(RefreshOutcome.Inactive);   // RT2 is dead too

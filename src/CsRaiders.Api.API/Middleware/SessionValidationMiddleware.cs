@@ -8,7 +8,7 @@ public sealed class SessionValidationMiddleware(RequestDelegate next)
 {
     private static readonly ConcurrentDictionary<Guid, (SessionStatus Status, DateTimeOffset CachedUntil)> Cache = new();
 
-    public async Task InvokeAsync(HttpContext context, ISessionStatusReader reader, ISessionCacheHook cacheHook)
+    public async Task InvokeAsync(HttpContext context, ISessionStatusReader reader, ISessionCacheHook cacheHook, IAuthMetricsRecorder metrics)
     {
         if (context.User.Identity?.IsAuthenticated != true ||
             !Guid.TryParse(context.User.FindFirstValue("sid"), out var sid))
@@ -19,10 +19,14 @@ public sealed class SessionValidationMiddleware(RequestDelegate next)
 
         var now = DateTimeOffset.UtcNow;
         SessionStatus? status = null;
-        if (Cache.TryGetValue(sid, out var cached) && cached.CachedUntil > now) 
+        if (Cache.TryGetValue(sid, out var cached) && cached.CachedUntil > now)
+        {
+            metrics.Increment("session_cache.hit");
             status = cached.Status;
+        }
         else
         {
+            metrics.Increment("session_cache.miss");
             status = await reader.ReadAsync(sid, context.RequestAborted);
             if (status is { } found) Cache[sid] = (found, now.AddSeconds(5));
         }

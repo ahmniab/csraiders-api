@@ -52,4 +52,16 @@ public sealed class Role : Entity
         _permissions = next;
         return change;
     }
+
+    public void UpdateDetails(string name, string slug, RoleScope scope)
+    {
+        if (IsSystem) throw new DomainException("system_role_immutable", "System roles cannot be edited.");
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentException.ThrowIfNullOrWhiteSpace(slug);
+        Name = name.Trim();
+        Slug = slug.Trim().ToLowerInvariant();
+        Scope = scope;
+        if (Scope == RoleScope.Student && _permissions.Any(p => !PermissionCatalog.StudentAllowed.Contains(p)))
+            throw new DomainException("student_role_forbidden_permission", "Student roles cannot hold staff permissions.");
+    }
 }

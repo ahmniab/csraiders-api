@@ -42,4 +42,5 @@ public interface ISessionRepository
         bool enforce,
         DateTimeOffset now,
         CancellationToken ct = default);
+    Task<int> DeleteStaleAsync(DateTimeOffset now, DateTimeOffset cutoff, CancellationToken ct = default);
 }

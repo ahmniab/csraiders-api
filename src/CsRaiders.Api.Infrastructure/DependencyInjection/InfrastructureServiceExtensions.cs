@@ -45,12 +45,16 @@ public static class InfrastructureServiceExtensions
         services.AddSingleton<ISessionCacheHook, MemorySessionCacheHook>();
         services.AddScoped<ISecurityAuditWriter, SecurityAuditWriter>();
         services.AddSingleton<IEmailQueue, ChannelEmailQueue>();
+        services.AddSingleton<IAuthMetricsRecorder, AuthMetricsRecorder>();
         services.AddSingleton<IEmailSender, ConsoleEmailSender>();
         services.AddHostedService<EmailSenderWorker>();
+        services.AddHostedService<AuthCleanupWorker>();
         services.AddScoped<IPasswordHasher, CsRaiders.Api.Infrastructure.Security.Argon2idPasswordHasher>();
         services.AddSingleton<IOtpGenerator, CsRaiders.Api.Infrastructure.Security.HmacOtpGenerator>();
         services.AddSingleton<ITokenService, CsRaiders.Api.Infrastructure.Security.TokenService>();
         services.AddScoped<IAppSettingsProvider, AppSettingsProvider>();
+        services.AddSingleton<IRbacInvalidationToken, RbacInvalidationToken>();
+        services.AddScoped<ISessionReconciliationService, SessionReconciliationService>();
 
         return services;
     }

@@ -14,6 +14,7 @@ public static class ApplicationServiceExtensions
             options.ServiceLifetime = ServiceLifetime.Scoped;
         });
         services.AddValidatorsFromAssembly(typeof(ApplicationServiceExtensions).Assembly);
+        services.AddScoped<IPostCommitActions, PostCommitActions>();
         services.AddScoped(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
         services.AddScoped(typeof(IPipelineBehavior<,>), typeof(TransactionBehavior<,>));
 
@@ -35,7 +36,7 @@ internal sealed class ValidationBehavior<TMessage, TResponse>(IEnumerable<IValid
     }
 }
 
-internal sealed class TransactionBehavior<TMessage, TResponse>(IApplicationDbContext db, ITransactionManager transactions)
+internal sealed class TransactionBehavior<TMessage, TResponse>(IApplicationDbContext db, ITransactionManager transactions, IPostCommitActions postCommit)
     : IPipelineBehavior<TMessage, TResponse> where TMessage : notnull, IMessage
 {
     public async ValueTask<TResponse> Handle(TMessage message, MessageHandlerDelegate<TMessage, TResponse> next, CancellationToken ct)
@@ -46,12 +47,27 @@ internal sealed class TransactionBehavior<TMessage, TResponse>(IApplicationDbCon
             var response = await next(message, ct);
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
+            postCommit.Run();
             return response;
         }
         catch
         {
+            postCommit.Clear();
             await transaction.RollbackAsync(ct);
             throw;
         }
     }
+}
+
+internal sealed class PostCommitActions : IPostCommitActions
+{
+    private readonly List<Action> _actions = [];
+    public void Enqueue(Action action) => _actions.Add(action);
+    public void Run()
+    {
+        var actions = _actions.ToArray();
+        _actions.Clear();
+        foreach (var action in actions) action();
+    }
+    public void Clear() => _actions.Clear();
 }

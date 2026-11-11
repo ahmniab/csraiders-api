@@ -25,9 +25,16 @@ public static class PermissionCatalog
 
     public static IReadOnlyList<string> All { get; } =
     [
-        CourseRead, CourseWrite, CoursePurge, LessonWrite, AssetWrite, QuestionWrite, QuizWrite,
-        UserRead, UserWrite, RoleManage, PaymentRead, PaymentVerify, PaymentRefund,
-        NotificationSend, AnalyticsRead, AuditRead, SettingsRead, SettingsWrite,
+        CourseRead, CourseWrite, CoursePurge, 
+        LessonWrite, 
+        AssetWrite, 
+        QuestionWrite, QuizWrite,
+        UserRead, UserWrite, 
+        RoleManage, 
+        PaymentRead, PaymentVerify, PaymentRefund,
+        NotificationSend, 
+        AnalyticsRead, AuditRead, 
+        SettingsRead, SettingsWrite,
         SessionMulti, SessionRevoke
     ];
 

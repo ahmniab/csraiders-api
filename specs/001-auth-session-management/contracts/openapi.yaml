@@ -255,13 +255,76 @@ paths:
         "404": { description: Unknown role }
 
   /admin/roles:
+    get:
+      tags: [admin-roles]
+      operationId: listRoles
+      security: [{ hasPermission: [role:manage] }]
+      responses:
+        "200": { description: Roles and effective permission lists }
     post:
       tags: [admin-roles]
       operationId: createRole
       security: [{ hasPermission: [role:manage] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, slug, scope, permissions]
+              properties:
+                name: { type: string }
+                slug: { type: string }
+                scope: { type: string, enum: [student, staff] }
+                permissions: { type: array, items: { type: string } }
       responses:
         "201": { description: Created }
         "409": { description: Slug conflict }
+
+  /admin/roles/permissions:
+    get:
+      tags: [admin-roles]
+      operationId: listPermissions
+      security: [{ hasPermission: [role:manage] }]
+      responses:
+        "200": { description: Known permission catalog }
+
+  /admin/roles/{roleId}:
+    get:
+      tags: [admin-roles]
+      operationId: getRole
+      security: [{ hasPermission: [role:manage] }]
+      responses:
+        "200": { description: Role details }
+        "404": { description: Unknown role }
+    put:
+      tags: [admin-roles]
+      operationId: updateRole
+      security: [{ hasPermission: [role:manage] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, slug, scope, permissions]
+              properties:
+                name: { type: string }
+                slug: { type: string }
+                scope: { type: string, enum: [student, staff] }
+                permissions: { type: array, items: { type: string } }
+      responses:
+        "200": { description: Updated }
+        "403": { description: System role or escalation violation }
+        "404": { description: Unknown role }
+    delete:
+      tags: [admin-roles]
+      operationId: deleteRole
+      security: [{ hasPermission: [role:manage] }]
+      responses:
+        "200": { description: Deleted }
+        "403": { description: System role or assigned role cannot be deleted }
+        "404": { description: Unknown role }
 
   /admin/users/{userId}/permissions{?effect}:
     post:
@@ -293,6 +356,15 @@ paths:
       security: [{ hasPermission: [user:manage] }]
       responses:
         "200": { description: Suspended — all sessions revoked (account_disabled), login unchanged uniform }
+
+  /admin/users/{userId}/reactivate:
+    post:
+      tags: [admin-users]
+      operationId: reactivateUser
+      security: [{ hasPermission: [user:manage] }]
+      responses:
+        "200": { description: Reactivated }
+        "409": { description: User is not suspended }
 
 components:
   securitySchemes:

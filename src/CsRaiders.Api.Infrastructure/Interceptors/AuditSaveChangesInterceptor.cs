@@ -13,9 +13,19 @@ public sealed class AuditSaveChangesInterceptor : SaveChangesInterceptor
     public static JsonDocument Redact(JsonDocument document)
     {
         var node = JsonNode.Parse(document.RootElement.GetRawText());
+        RedactNode(node);
+        return JsonDocument.Parse(node?.ToJsonString() ?? "{}");
+    }
+
+    private static void RedactNode(JsonNode? node)
+    {
         if (node is JsonObject obj)
             foreach (var property in obj.ToList())
+            {
                 if (Denied.Contains(property.Key)) obj[property.Key] = "[REDACTED]";
-        return JsonDocument.Parse(node?.ToJsonString() ?? "{}");
+                else RedactNode(property.Value);
+            }
+        else if (node is JsonArray array)
+            foreach (var item in array) RedactNode(item);
     }
 }
