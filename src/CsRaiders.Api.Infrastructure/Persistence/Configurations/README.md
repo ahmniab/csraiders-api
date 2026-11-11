@@ -1,16 +1,18 @@
 # Configurations
 
 ## Overview
-Configures Entity Framework Core relational mappings, table names, check constraints, column types, navigation access modes, and database indexes for identity, authentication, and session entities using PostgreSQL conventions.
+Configures Entity Framework Core relational mappings, table names, check constraints, column types, navigation access modes, and database indexes for identity, authentication, session, application settings, and security event entities using PostgreSQL conventions.
 
 ## Interface
 - `[EntityBuilderExtensions.cs:EntityBuilderExtensions.ConfigureBase]` - Configures base entity mappings for primary key `Id` (non-generated) and PostgreSQL `xmin` concurrency row version.
-- `[IdentityConfigurations.cs:UserConfiguration]` - Configures `User` entity mapping to `users` table, check constraint on `status`, unique index `ux_users_email`, soft-delete query filter, and cascade-deleted role and permission navigations.
+- `[IdentityConfigurations.cs:UserConfiguration]` - Configures `User` entity mapping to `users` table, check constraint on `status`, default pepper version, unique index `ux_users_email`, soft-delete query filter, and cascade-deleted role and permission navigations.
 - `[IdentityConfigurations.cs:RoleConfiguration]` - Configures `Role` entity mapping to `roles` table, check constraint on `scope`, unique index `ux_roles_slug`, and GIN index on `text[]` column `permissions`.
 - `[IdentityConfigurations.cs:UserRoleConfiguration]` - Configures `UserRole` join entity mapping to `user_roles` table with composite primary key (`UserId`, `RoleId`) and restrict delete on `Role`.
 - `[IdentityConfigurations.cs:UserPermissionConfiguration]` - Configures `UserPermission` entity mapping to `user_permissions` table with composite primary key (`UserId`, `Permission`) and check constraint on `effect`.
+- `[SecurityConfigurations.cs:AppSettingConfiguration]` - Configures `AppSetting` entity mapping to `app_settings` table with key primary key and required properties.
+- `[SecurityConfigurations.cs:SecurityEventConfiguration]` - Configures `SecurityEvent` entity mapping to `security_events` table with base entity configuration, citext email, jsonb details, user foreign key, and indexes on created_at and user_id.
 - `[SessionConfigurations.cs:SessionConfiguration]` - Configures `Session` entity mapping to `sessions` table, check constraint on `revoke_reason`, filtered unique index `uq_sessions_one_active`, and token/expiry indexes.
-- `[SessionConfigurations.cs:LoginAttemptConfiguration]` - Configures `LoginAttempt` entity mapping to `login_attempts` table, unique index `ux_login_attempts_email`, and rate-limiting IP/window indexes.
+- `[SessionConfigurations.cs:LoginAttemptConfiguration]` - Configures `LoginAttempt` entity mapping to `login_attempts` table, foreign key to `User`, and index on `updated_at`.
 - `[SessionConfigurations.cs:PendingRegistrationConfiguration]` - Configures `PendingRegistration` entity mapping to `pending_registrations` table, unique index `ux_pending_email`, and expiry index `ix_pending_expires`.
 - `[SessionConfigurations.cs:PasswordResetTokenConfiguration]` - Configures `PasswordResetToken` entity mapping to `password_reset_tokens` table, unique index `ux_password_reset_tokens_hash`, and user index `ix_password_reset_tokens_user`.
 

@@ -4,7 +4,7 @@
 CsRaiders.Api is a .NET Web API backend following Clean Architecture principles. It provides identity, authentication, session management, role-based access control (RBAC), and brute-force throttling for the CsRaiders platform. The system is partitioned into API presentation and hosting, Application use-case contracts and repositories, Domain business rules and entities, and Infrastructure PostgreSQL persistence using Entity Framework Core.
 
 ## Subdirectories & System Boundaries
-- src: [Source Tree Root](./src/README.md) - Contains the four Clean Architecture subsystem projects (API, Application, Domain, and Infrastructure).
+- src: [./src/README.md](./src/README.md) - Contains the four Clean Architecture subsystem projects (API, Application, Domain, and Infrastructure).
 
 ## Global Invariants
 - Clean Architecture dependency rule: Domain has zero external package dependencies; Application depends strictly on Domain; Infrastructure and API depend on Application and Domain.

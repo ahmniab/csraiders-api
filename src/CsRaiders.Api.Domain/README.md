@@ -6,7 +6,7 @@ Domain layer containing core business logic, entities, value objects, domain rul
 ## Subdirectories & Boundaries
 - Common: [./Common/README.md](./Common/README.md) - Base entity abstractions and sequential UUIDv7 identifier generation.
 - Constants: [./Constants/README.md](./Constants/README.md) - System authentication rules, permission catalogs, and role presets.
-- Entities: [./Entities/README.md](./Entities/README.md) - Aggregate roots and domain entities for users, sessions, roles, OTP registration, and login attempts.
+- Entities: [./Entities/README.md](./Entities/README.md) - Aggregate roots and domain entities for users, sessions, roles, OTP registration, login attempts, security events, and application settings.
 - Enums: [./Enums/README.md](./Enums/README.md) - Domain-wide enum types for statuses, scopes, revocation reasons, and authentication outcomes.
 - Exceptions: [./Exceptions/README.md](./Exceptions/README.md) - Domain exception definitions with structured error codes.
 - Policies: [./Policies/README.md](./Policies/README.md) - Business authorization resolution and session concurrency policy evaluation.
