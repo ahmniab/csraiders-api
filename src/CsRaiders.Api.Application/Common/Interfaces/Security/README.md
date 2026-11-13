@@ -18,12 +18,13 @@ Defines core security abstractions including password hashing, token generation/
 - `[ISessionReconciliationService.cs:ISessionReconciliationService]`: Service contract to reconcile and downgrade active sessions upon user loss of multi-session privileges.
 - `[ISessionStatusReader.cs:ISessionStatusReader]`: Lightweight read-only accessor for active session expiration and revocation status.
 - `[ISessionStatusReader.cs:SessionStatus]`: Record struct representing session status details (`SessionId`, `UserId`, `ExpiresAt`, `IdleExpiresAt`, `Revoked`).
-- `[ITokenService.cs:ITokenService]`: JWT token issuance, refresh token validation, and SHA256 refresh token hashing abstraction.
+- `[ITokenService.cs:ITokenService]`: JWT token issuance with 64-bit permission bitmask claims and 5-minute lifetimes, refresh token validation, and SHA256 refresh token hashing abstraction.
 - `[ITokenService.cs:RefreshTokenClaims]`: Record representing parsed claims from a validated refresh token (`UserId`, `SessionId`, `TokenId`).
 
 ## Invariants
 - `[IRbacInvalidationToken.cs:IRbacInvalidationToken.Invalidate]`: Must cancel the active `CurrentToken` source to trigger immediate invalidation across all cached authorization boundaries.
 - `[IPasswordHasher.cs:PasswordHashResult]`: Result must have status `Success` with non-null hash, or `Unavailable` with null hash when hashing service is overloaded.
+- `[ITokenService.cs:ITokenService.CreateAccessToken]`: Serializes the 64-bit integer permissions bitmask as an invariant base-10 decimal string in the `perms` claim with a 5-minute expiration window.
 - `[ITokenService.cs:ITokenService.TryValidateRefreshToken]`: Must validate signature and expiration against supplied `now` timestamp before outputting `RefreshTokenClaims`.
 - `[IOtpGenerator.cs:IOtpGenerator.Verify]`: Must verify that the provided OTP string matches the protected digest for the specified email address.
 
