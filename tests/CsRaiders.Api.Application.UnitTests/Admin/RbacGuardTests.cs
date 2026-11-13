@@ -1,4 +1,5 @@
 using System.Net;
+using CsRaiders.Api.Application.Common.Abstractions;
 using CsRaiders.Api.Application.Common.Interfaces.Repositories;
 using CsRaiders.Api.Application.Common.Interfaces.Security;
 using CsRaiders.Api.Application.Features.Admin;
@@ -51,7 +52,7 @@ public sealed class RbacGuardTests
         var users = new Users(grantor);
         var roles = new Roles(grantorRole, targetRole);
         var token = new Token();
-        var handler = new UpdateRolePermissionsCommandHandler(users, roles, new Reconciler(), token, new Audit());
+        var handler = new UpdateRolePermissionsCommandHandler(users, roles, new Sessions(), new Cache(), new Reconciler(), token, new Clock(), new Audit());
 
         var result = await handler.Handle(new UpdateRolePermissionsCommand(grantor.Id, targetRole.Id, [PermissionCatalog.CourseRead]), default);
 
@@ -69,6 +70,34 @@ public sealed class RbacGuardTests
     private sealed class Reconciler : ISessionReconciliationService
     {
         public Task ReconcileAfterMultiSessionLossAsync(Guid userId, CancellationToken ct = default) => Task.CompletedTask;
+    }
+
+    private sealed class Cache : ISessionCacheHook
+    {
+        public void Evict(Guid sessionId) { }
+    }
+
+    private sealed class Clock : IPlatformClock
+    {
+        public DateTimeOffset UtcNow => Now;
+    }
+
+    private sealed class Sessions : ISessionRepository
+    {
+        public Task<Session?> FindByIdAsync(Guid sessionId, bool track = false, CancellationToken ct = default) => Task.FromResult<Session?>(null);
+        public Task<Session?> FindByRefreshHashAsync(byte[] hash, bool track = false, CancellationToken ct = default) => Task.FromResult<Session?>(null);
+        public Task<Session?> FindByRefreshHashForUpdateAsync(byte[] hash, CancellationToken ct = default) => Task.FromResult<Session?>(null);
+        public Task<Session?> FindByIdForUpdateAsync(Guid sessionId, CancellationToken ct = default) => Task.FromResult<Session?>(null);
+        public Task<IReadOnlyList<Session>> FindActiveByUserIdAsync(Guid userId, DateTimeOffset? now = null, bool track = false, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<Session>>([]);
+        public Task<int> CountActiveByUserIdAsync(Guid userId, DateTimeOffset? now = null, CancellationToken ct = default) => Task.FromResult(0);
+        public Task<IReadOnlyList<CsRaiders.Api.Application.Common.Models.SessionSummary>> ListByUserIdAsync(Guid userId, DateTimeOffset now, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<CsRaiders.Api.Application.Common.Models.SessionSummary>>([]);
+        public Task AddAsync(Session session, CancellationToken ct = default) => Task.CompletedTask;
+        public void Update(Session session) { }
+        public Task<int> BulkRevokeByUserIdAsync(Guid userId, SessionRevokeReason reason, Guid? exceptSessionId, DateTimeOffset now, CancellationToken ct = default) => Task.FromResult(0);
+        public Task<int> RevokeOldestNAsync(Guid userId, int count, SessionRevokeReason reason, DateTimeOffset now, CancellationToken ct = default) => Task.FromResult(0);
+        public Task<int> RevokeAllByUserIdAsync(Guid userId, SessionRevokeReason reason, DateTimeOffset now, CancellationToken ct = default) => Task.FromResult(0);
+        public Task SetEnforceSingleSessionAsync(Guid userId, bool enforce, DateTimeOffset now, CancellationToken ct = default) => Task.CompletedTask;
+        public Task<int> DeleteStaleAsync(DateTimeOffset now, DateTimeOffset cutoff, CancellationToken ct = default) => Task.FromResult(0);
     }
 
     private sealed class Audit : ISecurityAuditWriter

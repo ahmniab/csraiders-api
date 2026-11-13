@@ -29,6 +29,7 @@ public sealed class ProxyOptions
 public sealed class RateLimitOptions
 {
     public int PerMinutePerIp { get; init; } = 20;
+    public int RefreshPerMinutePerIp { get; init; } = 100;
 }
 
 public sealed class EmailQueueOptions

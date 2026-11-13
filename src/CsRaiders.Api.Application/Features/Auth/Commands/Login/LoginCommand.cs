@@ -3,6 +3,7 @@ using CsRaiders.Api.Application.Common.Interfaces;
 using CsRaiders.Api.Application.Common.Interfaces.Repositories;
 using CsRaiders.Api.Application.Common.Interfaces.Security;
 using CsRaiders.Api.Application.Common.Abstractions;
+using CsRaiders.Api.Domain.Constants;
 using CsRaiders.Api.Domain.Entities;
 using CsRaiders.Api.Domain.Common;
 using CsRaiders.Api.Domain.Enums;
@@ -11,6 +12,8 @@ using CsRaiders.Api.Domain.ValueObjects;
 using FluentValidation;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Primitives;
 
 namespace CsRaiders.Api.Application.Features.Auth.Commands.Login;
 
@@ -44,7 +47,10 @@ public sealed class LoginCommandHandler(
     ISecurityEventRepository audit,
     IPlatformClock clock,
     IApplicationDbContext db,
-    ISessionCacheHook sessionCache)
+    ISessionCacheHook sessionCache,
+    IRoleRepository roles,
+    IMemoryCache cache,
+    IRbacInvalidationToken invalidation)
     : IRequestHandler<LoginCommand, LoginResult>
 {
     private const string Invalid = "invalid_credentials";
@@ -114,7 +120,22 @@ public sealed class LoginCommandHandler(
             await db.SaveChangesAsync(ct);
         }
 
-        return new(true, tokens.CreateAccessToken(user.Id, session.Id, now), refresh, session.Id, request.DeviceFingerprint);
+        var userWithPerms = await users.FindByIdWithPermissionsAsync(user.Id, ct: ct);
+        var assignedRoles = userWithPerms is not null && userWithPerms.Roles.Count > 0
+            ? await roles.FindByIdsAsync(userWithPerms.Roles.Select(r => r.RoleId), ct)
+            : [];
+        var effectivePerms = EffectivePermissions.Resolve(assignedRoles, userWithPerms?.PermissionOverrides ?? []);
+        var bitmask = PermissionBitmaskMapper.ToBitmask(effectivePerms);
+
+        cache.Set(
+            $"perms_mask:{user.Id:D}",
+            bitmask,
+            new MemoryCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10)
+            }.AddExpirationToken(new CancellationChangeToken(invalidation.CurrentToken)));
+
+        return new(true, tokens.CreateAccessToken(user.Id, session.Id, bitmask, now), refresh, session.Id, request.DeviceFingerprint);
     }
 
     private async Task ApplySessionPolicyAsync(

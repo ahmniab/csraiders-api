@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
@@ -10,16 +11,23 @@ namespace CsRaiders.Api.Infrastructure.Security;
 
 public sealed class TokenService(IConfiguration configuration) : ITokenService
 {
-    public string CreateAccessToken(Guid userId, Guid sessionId, DateTimeOffset now)
+    public string CreateAccessToken(Guid userId, Guid sessionId, ulong permissionsBitmask, DateTimeOffset now)
     {
         var origin = configuration["Site:Origin"] ?? string.Empty;
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(configuration["Auth:JwtSigningKey"] ?? string.Empty));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
         var descriptor = new SecurityTokenDescriptor
         {
-            Subject = new ClaimsIdentity([new(JwtRegisteredClaimNames.Sub, userId.ToString()), new("sid", sessionId.ToString())]),
-            IssuedAt = now.UtcDateTime, Expires = now.Add(AuthRules.AccessTokenLifetime).UtcDateTime,
-            SigningCredentials = credentials, Issuer = origin, Audience = origin
+            Subject = new ClaimsIdentity([
+                new(JwtRegisteredClaimNames.Sub, userId.ToString()),
+                new("sid", sessionId.ToString()),
+                new("perms", permissionsBitmask.ToString(CultureInfo.InvariantCulture))
+            ]),
+            IssuedAt = now.UtcDateTime,
+            Expires = now.Add(AuthRules.AccessTokenLifetime).UtcDateTime,
+            SigningCredentials = credentials,
+            Issuer = origin,
+            Audience = origin
         };
         return new JwtSecurityTokenHandler().WriteToken(new JwtSecurityTokenHandler().CreateToken(descriptor));
     }

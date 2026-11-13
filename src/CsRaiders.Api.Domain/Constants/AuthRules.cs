@@ -3,7 +3,7 @@ namespace CsRaiders.Api.Domain.Constants;
 public static class AuthRules
 {
     // Tokens and sessions (FR-63)
-    public static readonly TimeSpan AccessTokenLifetime     = TimeSpan.FromMinutes(15);
+    public static readonly TimeSpan AccessTokenLifetime     = TimeSpan.FromMinutes(5);
     public static readonly TimeSpan RefreshAbsoluteLifetime = TimeSpan.FromDays(30);
     public static readonly TimeSpan RefreshIdleLifetime     = TimeSpan.FromDays(14);
     public static readonly TimeSpan RefreshReplayGraceWindow = TimeSpan.FromSeconds(15);

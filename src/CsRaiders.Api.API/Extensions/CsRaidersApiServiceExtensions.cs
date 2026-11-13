@@ -56,7 +56,7 @@ public static class CsRaidersApiServiceExtensions
         builder.Services.AddAuthorization(AuthPolicies.AddAuthPolicies);
         builder.Services.AddMemoryCache();
         builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionAuthorizationPolicyProvider>();
-        builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
+        builder.Services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
         builder.Services.AddScoped<ISessionCookieWriter, SessionCookieWriter>();
         builder.Services.AddScoped<OriginAndHeaderValidationFilter>();
         builder.Services.AddEndpointsApiExplorer();
@@ -89,10 +89,35 @@ public static class CsRaidersApiServiceExtensions
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
             options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
-                context.Request.Path.StartsWithSegments("/api/v1/auth")
-                    ? RateLimitPartition.GetFixedWindowLimiter(context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-                        _ => new FixedWindowRateLimiterOptions { PermitLimit = builder.Configuration.GetValue("RateLimit:PerMinutePerIp", 20), Window = TimeSpan.FromMinutes(1), QueueLimit = 0 })
-                    : RateLimitPartition.GetNoLimiter("unlimited"));
+            {
+                var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+                if (context.Request.Path.Equals("/api/v1/auth/refresh", StringComparison.OrdinalIgnoreCase))
+                {
+                    return RateLimitPartition.GetFixedWindowLimiter(
+                        $"refresh_{ip}",
+                        _ => new FixedWindowRateLimiterOptions
+                        {
+                            PermitLimit = builder.Configuration.GetValue("RateLimit:RefreshPerMinutePerIp", 100),
+                            Window = TimeSpan.FromMinutes(1),
+                            QueueLimit = 0
+                        });
+                }
+
+                if (context.Request.Path.StartsWithSegments("/api/v1/auth"))
+                {
+                    return RateLimitPartition.GetFixedWindowLimiter(
+                        $"auth_{ip}",
+                        _ => new FixedWindowRateLimiterOptions
+                        {
+                            PermitLimit = builder.Configuration.GetValue("RateLimit:PerMinutePerIp", 20),
+                            Window = TimeSpan.FromMinutes(1),
+                            QueueLimit = 0
+                        });
+                }
+
+                return RateLimitPartition.GetNoLimiter("unlimited");
+            });
         });
 
         var signingKey = builder.Configuration["Auth:JwtSigningKey"] ?? string.Empty;

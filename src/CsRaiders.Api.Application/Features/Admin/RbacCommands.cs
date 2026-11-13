@@ -44,13 +44,45 @@ public static class RbacCommandSupport
 
     public static bool CanGrant(IReadOnlySet<string>? grantorPermissions, IEnumerable<string> permissions) =>
         grantorPermissions is not null && permissions.All(grantorPermissions.Contains);
+
+    public static bool HasLostSensitivePermission(
+        IReadOnlySet<string> permissionsBefore,
+        IReadOnlySet<string> permissionsAfter)
+    {
+        foreach (var sensitive in SensitivePermissions.All)
+        {
+            if (permissionsBefore.Contains(sensitive) && !permissionsAfter.Contains(sensitive))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static async Task RevokeUserSessionsAsync(
+        Guid userId,
+        ISessionRepository sessions,
+        ISessionCacheHook sessionCache,
+        DateTimeOffset now,
+        CancellationToken ct)
+    {
+        var active = await sessions.FindActiveByUserIdAsync(userId, now, ct: ct);
+        await sessions.RevokeAllByUserIdAsync(userId, SessionRevokeReason.AdminRevoked, now, ct);
+        foreach (var session in active)
+        {
+            sessionCache.Evict(session.Id);
+        }
+    }
 }
 
 public sealed class UpdateRolePermissionsCommandHandler(
     IUserRepository users,
     IRoleRepository roles,
+    ISessionRepository sessions,
+    ISessionCacheHook sessionCache,
     ISessionReconciliationService reconciliation,
     IRbacInvalidationToken invalidation,
+    IPlatformClock clock,
     ISecurityAuditWriter audit) : IRequestHandler<UpdateRolePermissionsCommand, AdminChangeResult>
 {
     public async ValueTask<AdminChangeResult> Handle(UpdateRolePermissionsCommand request, CancellationToken ct)
@@ -60,21 +92,38 @@ public sealed class UpdateRolePermissionsCommandHandler(
 
         var role = await roles.FindByIdAsync(request.RoleId, track: true, ct);
         if (role is null) return AdminChangeResult.Missing();
+        var oldPermissions = role.Permissions.ToArray();
         var change = role.SetPermissions(request.Permissions);
         roles.Update(role);
 
-        // Only a loss can force a downgrade. Evaluate with the in-memory updated
-        // role substituted for the database version before the transaction commits.
-        if (change.Removed.Contains(PermissionCatalog.SessionMulti))
+        var sensitiveRemoved = change.Removed.Any(SensitivePermissions.IsSensitive);
+        var multiRemoved = change.Removed.Contains(PermissionCatalog.SessionMulti);
+
+        if (sensitiveRemoved || multiRemoved)
         {
+            var oldRole = Role.Create(role.Name, role.Slug, role.Scope, oldPermissions, role.IsSystem);
+            var now = clock.UtcNow;
             foreach (var userId in await users.FindIdsByRoleIdAsync(role.Id, ct))
             {
                 var user = await users.FindByIdWithPermissionsAsync(userId, ct: ct);
                 if (user is null) continue;
-                var assigned = (await roles.FindByIdsAsync(user.Roles.Select(x => x.RoleId), ct))
-                    .Where(x => x.Id != role.Id).Append(role);
-                if (!EffectivePermissions.Resolve(assigned, user.PermissionOverrides).Contains(PermissionCatalog.SessionMulti))
+                var otherRoles = (await roles.FindByIdsAsync(user.Roles.Select(x => x.RoleId), ct))
+                    .Where(x => x.Id != role.Id).ToList();
+
+                var effectiveBefore = EffectivePermissions.Resolve(otherRoles.Append(oldRole), user.PermissionOverrides);
+                var effectiveAfter = EffectivePermissions.Resolve(otherRoles.Append(role), user.PermissionOverrides);
+
+                if (sensitiveRemoved && RbacCommandSupport.HasLostSensitivePermission(effectiveBefore, effectiveAfter))
+                {
+                    await RbacCommandSupport.RevokeUserSessionsAsync(userId, sessions, sessionCache, now, ct);
+                }
+
+                if (multiRemoved &&
+                    effectiveBefore.Contains(PermissionCatalog.SessionMulti) &&
+                    !effectiveAfter.Contains(PermissionCatalog.SessionMulti))
+                {
                     await reconciliation.ReconcileAfterMultiSessionLossAsync(userId, ct);
+                }
             }
         }
 
@@ -107,7 +156,11 @@ public sealed class CreateRoleCommandHandler(
 public sealed class UpdateRoleCommandHandler(
     IUserRepository users,
     IRoleRepository roles,
+    ISessionRepository sessions,
+    ISessionCacheHook sessionCache,
+    ISessionReconciliationService reconciliation,
     IRbacInvalidationToken invalidation,
+    IPlatformClock clock,
     ISecurityAuditWriter audit) : IRequestHandler<UpdateRoleCommand, AdminChangeResult>
 {
     public async ValueTask<AdminChangeResult> Handle(UpdateRoleCommand request, CancellationToken ct)
@@ -119,9 +172,43 @@ public sealed class UpdateRoleCommandHandler(
         if (role.IsSystem) return AdminChangeResult.Denied();
         var existing = await roles.FindBySlugAsync(request.Slug, ct: ct);
         if (existing is not null && existing.Id != role.Id) return AdminChangeResult.Denied();
-        role.SetPermissions(request.Permissions);
+
+        var oldPermissions = role.Permissions.ToArray();
+        var change = role.SetPermissions(request.Permissions);
         role.UpdateDetails(request.Name, request.Slug, request.Scope);
         roles.Update(role);
+
+        var sensitiveRemoved = change.Removed.Any(SensitivePermissions.IsSensitive);
+        var multiRemoved = change.Removed.Contains(PermissionCatalog.SessionMulti);
+
+        if (sensitiveRemoved || multiRemoved)
+        {
+            var oldRole = Role.Create(role.Name, role.Slug, role.Scope, oldPermissions, role.IsSystem);
+            var now = clock.UtcNow;
+            foreach (var userId in await users.FindIdsByRoleIdAsync(role.Id, ct))
+            {
+                var user = await users.FindByIdWithPermissionsAsync(userId, ct: ct);
+                if (user is null) continue;
+                var otherRoles = (await roles.FindByIdsAsync(user.Roles.Select(x => x.RoleId), ct))
+                    .Where(x => x.Id != role.Id).ToList();
+
+                var effectiveBefore = EffectivePermissions.Resolve(otherRoles.Append(oldRole), user.PermissionOverrides);
+                var effectiveAfter = EffectivePermissions.Resolve(otherRoles.Append(role), user.PermissionOverrides);
+
+                if (sensitiveRemoved && RbacCommandSupport.HasLostSensitivePermission(effectiveBefore, effectiveAfter))
+                {
+                    await RbacCommandSupport.RevokeUserSessionsAsync(userId, sessions, sessionCache, now, ct);
+                }
+
+                if (multiRemoved &&
+                    effectiveBefore.Contains(PermissionCatalog.SessionMulti) &&
+                    !effectiveAfter.Contains(PermissionCatalog.SessionMulti))
+                {
+                    await reconciliation.ReconcileAfterMultiSessionLossAsync(userId, ct);
+                }
+            }
+        }
+
         invalidation.Invalidate();
         await audit.WriteAsync("role_updated", request.GrantorUserId, details: new { roleId = role.Id, slug = role.Slug }, ct: ct);
         return new(true);
@@ -131,7 +218,10 @@ public sealed class UpdateRoleCommandHandler(
 public sealed class DeleteRoleCommandHandler(
     IUserRepository users,
     IRoleRepository roles,
+    ISessionRepository sessions,
+    ISessionCacheHook sessionCache,
     IRbacInvalidationToken invalidation,
+    IPlatformClock clock,
     ISecurityAuditWriter audit) : IRequestHandler<DeleteRoleCommand, AdminChangeResult>
 {
     public async ValueTask<AdminChangeResult> Handle(DeleteRoleCommand request, CancellationToken ct)
@@ -141,6 +231,26 @@ public sealed class DeleteRoleCommandHandler(
         var role = await roles.FindByIdAsync(request.RoleId, track: true, ct);
         if (role is null) return AdminChangeResult.Missing();
         if (role.IsSystem || await roles.CountUsersAsync(role.Id, ct) > 0) return AdminChangeResult.Denied();
+
+        var roleUserIds = await users.FindIdsByRoleIdAsync(role.Id, ct);
+        if (roleUserIds.Count > 0 && role.Permissions.Any(SensitivePermissions.IsSensitive))
+        {
+            var now = clock.UtcNow;
+            foreach (var userId in roleUserIds)
+            {
+                var user = await users.FindByIdWithPermissionsAsync(userId, ct: ct);
+                if (user is null) continue;
+                var remainingRoles = (await roles.FindByIdsAsync(user.Roles.Select(x => x.RoleId), ct))
+                    .Where(x => x.Id != role.Id).ToList();
+                var effectiveBefore = EffectivePermissions.Resolve(remainingRoles.Append(role), user.PermissionOverrides);
+                var effectiveAfter = EffectivePermissions.Resolve(remainingRoles, user.PermissionOverrides);
+                if (RbacCommandSupport.HasLostSensitivePermission(effectiveBefore, effectiveAfter))
+                {
+                    await RbacCommandSupport.RevokeUserSessionsAsync(userId, sessions, sessionCache, now, ct);
+                }
+            }
+        }
+
         roles.Delete(role);
         invalidation.Invalidate();
         await audit.WriteAsync("role_deleted", request.GrantorUserId, details: new { roleId = role.Id }, ct: ct);
@@ -151,6 +261,8 @@ public sealed class DeleteRoleCommandHandler(
 public sealed class SetUserPermissionOverrideCommandHandler(
     IUserRepository users,
     IRoleRepository roles,
+    ISessionRepository sessions,
+    ISessionCacheHook sessionCache,
     ISessionReconciliationService reconciliation,
     IRbacInvalidationToken invalidation,
     IPlatformClock clock,
@@ -166,11 +278,22 @@ public sealed class SetUserPermissionOverrideCommandHandler(
         var user = await users.FindByIdWithPermissionsAsync(request.UserId, track: true, ct: ct);
         if (user is null) return AdminChangeResult.Missing();
         var assigned = await roles.FindByIdsAsync(user.Roles.Select(x => x.RoleId), ct);
-        var hadMulti = EffectivePermissions.Resolve(assigned, user.PermissionOverrides).Contains(PermissionCatalog.SessionMulti);
-        if (request.Effect is { } effect) user.SetPermissionOverride(request.Permission, effect, request.GrantorUserId, clock.UtcNow);
+        var permissionsBefore = EffectivePermissions.Resolve(assigned, user.PermissionOverrides);
+
+        var now = clock.UtcNow;
+        if (request.Effect is { } effect) user.SetPermissionOverride(request.Permission, effect, request.GrantorUserId, now);
         else user.ClearPermissionOverride(request.Permission);
         users.Update(user);
-        var hasMulti = EffectivePermissions.Resolve(assigned, user.PermissionOverrides).Contains(PermissionCatalog.SessionMulti);
+
+        var permissionsAfter = EffectivePermissions.Resolve(assigned, user.PermissionOverrides);
+
+        if (RbacCommandSupport.HasLostSensitivePermission(permissionsBefore, permissionsAfter))
+        {
+            await RbacCommandSupport.RevokeUserSessionsAsync(user.Id, sessions, sessionCache, now, ct);
+        }
+
+        var hadMulti = permissionsBefore.Contains(PermissionCatalog.SessionMulti);
+        var hasMulti = permissionsAfter.Contains(PermissionCatalog.SessionMulti);
         if (hadMulti && !hasMulti) await reconciliation.ReconcileAfterMultiSessionLossAsync(user.Id, ct);
 
         invalidation.Invalidate();
@@ -183,6 +306,8 @@ public sealed class SetUserPermissionOverrideCommandHandler(
 public sealed class ElevateUserRolesCommandHandler(
     IUserRepository users,
     IRoleRepository roles,
+    ISessionRepository sessions,
+    ISessionCacheHook sessionCache,
     ISessionReconciliationService reconciliation,
     IRbacInvalidationToken invalidation,
     IPlatformClock clock,
@@ -198,11 +323,22 @@ public sealed class ElevateUserRolesCommandHandler(
         if (!RbacCommandSupport.CanGrant(grantor, requested.SelectMany(x => x.Permissions))) return AdminChangeResult.Denied();
 
         var priorRoles = await roles.FindByIdsAsync(target.Roles.Select(x => x.RoleId), ct);
-        var hadMulti = EffectivePermissions.Resolve(priorRoles, target.PermissionOverrides).Contains(PermissionCatalog.SessionMulti);
+        var permissionsBefore = EffectivePermissions.Resolve(priorRoles, target.PermissionOverrides);
+
+        var now = clock.UtcNow;
         foreach (var role in target.Roles.ToArray()) target.RemoveRole(role.RoleId);
-        foreach (var role in requested) target.AssignRole(role.Id, request.GrantorUserId, clock.UtcNow);
+        foreach (var role in requested) target.AssignRole(role.Id, request.GrantorUserId, now);
         users.Update(target);
-        var hasMulti = EffectivePermissions.Resolve(requested, target.PermissionOverrides).Contains(PermissionCatalog.SessionMulti);
+
+        var permissionsAfter = EffectivePermissions.Resolve(requested, target.PermissionOverrides);
+
+        if (RbacCommandSupport.HasLostSensitivePermission(permissionsBefore, permissionsAfter))
+        {
+            await RbacCommandSupport.RevokeUserSessionsAsync(target.Id, sessions, sessionCache, now, ct);
+        }
+
+        var hadMulti = permissionsBefore.Contains(PermissionCatalog.SessionMulti);
+        var hasMulti = permissionsAfter.Contains(PermissionCatalog.SessionMulti);
         if (hadMulti && !hasMulti) await reconciliation.ReconcileAfterMultiSessionLossAsync(target.Id, ct);
 
         invalidation.Invalidate();

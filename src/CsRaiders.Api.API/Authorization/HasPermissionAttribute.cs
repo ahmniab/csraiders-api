@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 
 namespace CsRaiders.Api.API.Authorization;
 
-/// <summary>Declares a permission requirement without putting permissions in JWTs.</summary>
+/// <summary>Declares a permission requirement evaluated in-memory from access token bitmask claims with zero database lookups.</summary>
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true, Inherited = true)]
 public sealed class HasPermissionAttribute : AuthorizeAttribute
 {
