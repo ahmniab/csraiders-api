@@ -12,10 +12,10 @@ Defines shared strongly-typed configuration option models for authentication, si
 - `CryptoOptions` concurrency timeout settings for cryptographic routines (`[AuthOptions.cs:CryptoOptions]`)
 
 ## Invariants
-None
+- None
 
 ## Side Effects
-None
+- None
 
 ## Verification
 - Run: `dotnet test`
