@@ -1,108 +1,71 @@
 # Stage 6 Comprehension Test Report
 
-**Target Document:** [`docs/designs/token_embedded_authorization_bitmask_claims.md`](file:///mnt/projects/web/backend/dotnet/CsRaiders.Api/docs/designs/token_embedded_authorization_bitmask_claims.md)  
-**Feature Range:** lines 1..271  
-**Detailed Range:** lines 272..360  
-**Evaluator:** Naive Reader Comprehension Auditor (`egm-comprehension`)
+**Target:** [`docs/designs/token_embedded_authorization_bitmask_claims.md`](file:///mnt/projects/web/backend/dotnet/CsRaiders.Api/docs/designs/token_embedded_authorization_bitmask_claims.md) (`lines 1–404`)  
+**Standard:** Comprehension Test (Self-Containment & Naive Reader)  
+**Report Destination:** `comprehension_report.md`
 
 ---
 
-## 1. Paraphrase of Feature Specification (FeatureRange: lines 1..271)
+## Paraphrase
 
-The feature specification addresses query and cache overhead during endpoint authorization checks by embedding user permissions as a 32-bit scalar unsigned integer bitmask (`"perms"`) directly inside access tokens. 
+### What this proposes
+The document proposes encoding user authorization permissions into a 64-bit integer bitmask formatted as a decimal string inside a `"perms"` claim in JWT access tokens. Endpoint authorization checks (`[HasPermission]`) parse this claim and verify permissions via sub-nanosecond bitwise operations in memory, failing immediately without falling back to database or cache queries if the claim is missing or invalid. Access token lifetime is shortened to 5 minutes to bound administrative permission revocation lag, while refresh token handling pre-resolves user permissions outside the pessimistic row lock on `sessions`. String-based permission storage in PostgreSQL is retained to avoid database schema migrations and preserve audit logs, and rate limiting on `/api/v1/auth/refresh` is raised to 100 req/min per IP to mitigate NAT gateway bottlenecks.
 
-### Core Mechanics Described
-* **Bitwise Evaluation**: Endpoints decorated with `[HasPermission]` evaluate access in < 1 nanosecond via bitwise AND against the `"perms"` claim without querying `IMemoryCache` or PostgreSQL.
-* **Bounded Permission Propagation**: Access token lifetime is reduced from 15 minutes to 5 minutes so administrative permission updates propagate within 5 minutes across background client refreshes, while user login sessions remain long-lived (governed by refresh token validity).
-* **Dual-Read Migration Fallback**: To prevent HTTP 403 errors on in-flight 15-minute legacy tokens lacking the `"perms"` claim during rolling deployment, `PermissionAuthorizationHandler` falls back to the existing in-memory cache and database path when `"perms"` is absent.
-* **Refresh Concurrency Optimization**: To avoid database connection pool exhaustion under 3x refresh volume, `RefreshTokenCommandHandler` resolves permissions prior to acquiring an exclusive pessimistic row lock on `sessions`, holding the lock for < 2 milliseconds to rotate the refresh token hash.
-* **NAT Rate Limiting**: `/api/v1/auth/refresh` is partitioned into a dedicated 100 req/min rate limit to prevent false-positive HTTP 429 lockouts for multiple users sharing an egress IP.
-* **Security & Invalidation**: Session revocation (logout, bans) remains instant (< 5 seconds) via `SessionValidationMiddleware.cs`.
+### How the existing system works, per this document
+Currently, every endpoint decorated with `[HasPermission]` triggers `PermissionAuthorizationHandler`, which constructs a cache key (`perms:{userId}`) and queries `IMemoryCache`. On cache misses or invalidations, it executes split queries across the `users`, `user_roles`, and `user_permissions` tables in PostgreSQL. Access tokens currently live for 15 minutes, and permissions are not embedded within token claims due to the 1.5+ KB header bloat caused by serializing 20 permission strings. Token refresh in `RefreshTokenCommandHandler` acquires an exclusive pessimistic row lock (`SELECT ... FOR UPDATE` on `sessions`), and all `/api/v1/auth` routes share a fixed-window rate limiter of 20 requests per minute per IP.
 
 ---
 
-## 2. Paraphrase of Detailed Implementation Plan (DetailedRange: lines 272..360)
+## Prioritized Findings
 
-The implementation plan details 19 file changes across all architecture layers:
-1. **Domain Layer**:
-   * Create `PermissionBits.cs` (32-bit flags enum mapping 20 permissions).
-   * Create `PermissionBitmaskMapper.cs` (static utility for bitmask conversion and evaluation).
-   * Modify `AuthRules.cs` (set `AccessTokenLifetime = TimeSpan.FromMinutes(5)`).
-   * Update `src/CsRaiders.Api.Domain/Constants/README.md`.
-2. **Application Layer**:
-   * Modify `ITokenService.cs` (add `uint permissionsBitmask` parameter to `CreateAccessToken`).
-   * Update `src/CsRaiders.Api.Application/Common/Interfaces/Security/README.md`.
-   * Modify `LoginCommand.cs` (resolve permissions, convert to bitmask, pass to `CreateAccessToken`).
-   * Update `src/CsRaiders.Api.Application/Features/Auth/Commands/Login/README.md`.
-   * Modify `RefreshTokenCommand.cs` (decouple permission resolution from `sessions` row lock, issue bitmask token).
-   * Update `src/CsRaiders.Api.Application/Features/Auth/Commands/Refresh/README.md`.
-3. **Infrastructure Layer**:
-   * Modify `TokenService.cs` (serialize `"perms"` as decimal integer string claim in JWT).
-   * Update `src/CsRaiders.Api.Infrastructure/Security/README.md`.
-4. **API Layer**:
-   * Modify `PermissionAuthorizationHandler.cs` (bitwise check on `"perms"` claim with fallback to `IMemoryCache`).
-   * Modify `HasPermissionAttribute.cs` docstring.
-   * Update `src/CsRaiders.Api.API/Authorization/README.md`.
-   * Modify `CsRaidersApiServiceExtensions.cs` (partition rate limiting for `/api/v1/auth/refresh`).
-   * Update `src/CsRaiders.Api.API/Extensions/README.md`.
-5. **Testing Layer**:
-   * Create `PermissionBitmaskMapperTests.cs` (mapping, flag combination, and lookup tests).
-   * Modify `PermissionAuthorizationHandlerTests.cs` (fast bitwise path and dual-read fallback test cases).
+### [Unstated Refresh Token Validation Prerequisite] - Severity: Major
+* **Reviewer Lens:** `egm-comprehension`
+* **Affected Scope:** Section CUJ 3 (lines 59–63), Section 1 Architecture Diagram (lines 98–103), and Section 5.1 (lines 219–228)
+* **Discrepancy Description & Rationale**:  
+  CUJ 3 and the refresh architecture diagram specify that effective permissions are resolved *prior* to acquiring the pessimistic row lock on `sessions` ("1. Resolve Effective Permissions ... 3. Acquire Session Row Lock"). Section 5.1 states: "Extract `claims.UserId` and query effective permissions...".  
+  For a fresh reader who does not already know that refresh tokens are signed JWTs, it is unclear how the handler obtains `UserId` before querying the `sessions` table. The document omits Step 0: cryptographically validating and decoding the refresh token via `ITokenService.TryValidateRefreshToken` to extract `claims.UserId` before hitting the database.
 
 ---
 
-## 3. Comprehension Findings & Ambiguities
-
-### 🟡 Finding 1: Refresh Token Hash Resolution Inconsistency & Query Amplification (Major)
-* **Affected Scope**: Section 5 (lines 190–198) and Target File 9 (lines 318–320).
-* **Details**: Line 191 states: *"Extract `sessionId` from the refresh token hash or load the session without pessimistic locking."*
-  1. A cryptographic hash is a one-way digest; a GUID cannot be extracted from a hash.
-  2. The text leaves an ambiguous "either/or" choice rather than providing a concrete implementation specification.
-  3. Running permission resolution queries *before* validating the refresh token hash and session expiration risks executing expensive database queries on unauthenticated, expired, or replayed tokens.
-* **Remediation**: Clarify that session lookup and cryptographic token validation occur first, with permissions retrieved from an in-memory cache or resolved prior to acquiring the pessimistic row lock.
+### [Omission of Domain Permission Aggregation & Constructor Injections] - Severity: Major
+* **Reviewer Lens:** `egm-comprehension`
+* **Affected Scope:** Section 5 ("Decoupled Token Refresh & Login Pipeline", lines 219–231) and Section Detailed Implementation Plan (Items 7 & 9, lines 331–345)
+* **Discrepancy Description & Rationale**:  
+  The document states that `RefreshTokenCommandHandler` and `LoginCommandHandler` will "query effective permissions via existing repository methods (`users.FindByIdWithPermissionsAsync` and `roles.FindByIdsAsync`)" and then "aggregate effective permission strings into `long bitmask` via `PermissionBitmaskMapper.ToBitmask`."  
+  However, `users.FindByIdWithPermissionsAsync` returns a `User` entity (with `Roles` and `PermissionOverrides`), and `roles.FindByIdsAsync` returns `IReadOnlyList<Role>`. In the domain model, combining role permissions with user grant/deny overrides is executed by [`EffectivePermissions.Resolve(assignedRoles, user.PermissionOverrides)`](file:///mnt/projects/web/backend/dotnet/CsRaiders.Api/src/CsRaiders.Api.Domain/Policies/EffectivePermissions.cs). The document skips this domain policy entirely, leaving an unexplained gap between repository queries and `PermissionBitmaskMapper.ToBitmask`.  
+  Furthermore, neither command handler currently injects both repositories (`RefreshTokenCommandHandler` has neither `IUserRepository` nor `IRoleRepository`; `LoginCommandHandler` lacks `IRoleRepository`). The implementation plan fails to specify injecting these repositories into the command handler constructors.
 
 ---
 
-### 🟡 Finding 2: Open Questions Inconsistency with Document Body (Major)
-* **Affected Scope**: "Open Questions" (lines 38–42), Section 3 (lines 147–153), Section 6 (lines 205–211), Target Files 11 & 16.
-* **Details**:
-  1. Open Question 1 asks if `"perms"` should be decimal or hexadecimal, yet the body already standardizes on decimal string serialization (`permissionsBitmask.ToString(CultureInfo.InvariantCulture)`).
-  2. Open Question 2 asks whether rate limiting should be partitioned by IP (100 req/min) or by session/user, while Section 6 mixes both and Section 16 prescribes 100 req/min per IP.
-* **Remediation**: Resolve Open Question 1 as decimal, and commit Section 6 / Section 16 to a clear rate limiting policy (session-keyed partitioning).
+### [Inaccurate Solution and Unit Test Project Paths] - Severity: Major
+* **Reviewer Lens:** `egm-comprehension`
+* **Affected Scope:** Section Detailed Implementation Plan (Items 18 & 19, lines 378–389) and Verification Plan (lines 392–396)
+* **Discrepancy Description & Rationale**:  
+  The document directs the reader to:
+  1. Create `tests/CsRaiders.Api.UnitTests/Domain/PermissionBitmaskMapperTests.cs` and run `dotnet test tests/CsRaiders.Api.UnitTests/CsRaiders.Api.UnitTests.csproj`. The directory `tests/CsRaiders.Api.UnitTests` does not exist; unit tests reside in [`tests/CsRaiders.Api.Domain.UnitTests`](file:///mnt/projects/web/backend/dotnet/CsRaiders.Api/tests/CsRaiders.Api.Domain.UnitTests) and [`tests/CsRaiders.Api.Application.UnitTests`](file:///mnt/projects/web/backend/dotnet/CsRaiders.Api/tests/CsRaiders.Api.Application.UnitTests).
+  2. Modify `tests/CsRaiders.Api.UnitTests/API/PermissionAuthorizationHandlerTests.cs`. This file does not exist anywhere in the repository, making `(Modify)` inaccurate (should be `(Create)`).
+  3. Build `src/CsRaiders.Api.sln`. The solution file is located at the root ([`CsRaiders.Api.sln`](file:///mnt/projects/web/backend/dotnet/CsRaiders.Api/CsRaiders.Api.sln)), not in `src/`.
 
 ---
 
-### 🟡 Finding 3: Unspecified Error Contract for Unrecognized Permissions (Major)
-* **Affected Scope**: Section 2 (lines 136–137), Section 4 (lines 171–172), Target File 2 (lines 287–288).
-* **Details**: `PermissionBitmaskMapper.GetBit(requirement.Permission)` is invoked in the hot path. If an unmapped or misspelled permission string is supplied, the behavior is undefined: does it return `PermissionBits.None` (0), throw an exception, or return null?
-* **Remediation**: Explicitly specify that `GetBit` returns `PermissionBits.None` on unmapped permissions, causing authorization to safely fail closed (`false`).
+### [Incomplete Branch Representation in Authorization Flowchart] - Severity: Nit
+* **Reviewer Lens:** `egm-comprehension`
+* **Affected Scope:** Section 1 Architecture Diagram ("EvaluationPath", lines 91–96, 107–108)
+* **Discrepancy Description & Rationale**:  
+  In the Mermaid diagram, the flowchart links `CheckClaim -- Yes --> ParseInt --> BitwiseCheck --> Endpoints["Controller Action"]` directly. The only branch to `FailFast` comes from `CheckClaim -- No / Invalid`. There is no outgoing failure branch from `BitwiseCheck` when `(bitmask & requiredBit) == 0`.
 
 ---
 
-### 🟡 Finding 4: Missing Registration Command & Mock Test Updates (Major)
-* **Affected Scope**: Target Files 5, 7, 9, 18, 19 (lines 300–361).
-* **Details**:
-  1. If `/api/v1/auth/register` issues access tokens, `RegisterCommand.cs` must be updated with the new `CreateAccessToken` signature.
-  2. Existing unit test suites for `LoginCommandHandlerTests`, `RefreshTokenCommandHandlerTests`, and `TokenServiceTests` that mock `ITokenService` will break compilation unless updated.
-* **Remediation**: Verify whether `RegisterCommand` issues tokens, and add the existing command handler unit test files to the target modification list.
+### [Undefined Lifecycle for Removed Handler Dependencies] - Severity: Nit
+* **Reviewer Lens:** `egm-comprehension`
+* **Affected Scope:** Section 4 ("Endpoint Authorization Handler", line 180)
+* **Discrepancy Description & Rationale**:  
+  Line 180 specifies dropping `IRbacInvalidationToken` and `IAuthMetricsRecorder` from `PermissionAuthorizationHandler`. Clarifying that cache hit/miss metrics are removed because evaluation is pure CPU, and noting that `IRbacInvalidationToken` is no longer needed by authorization due to bounded 5-minute token expiry, avoids confusion.
 
 ---
 
-### 🟢 Finding 5: Malformed `perms` Claim Fallback Semantics (Nit)
-* **Affected Scope**: Section 4 (lines 168–185).
-* **Details**: If `"perms"` claim exists but fails `uint.TryParse` (e.g. malformed value), does the handler fail authorization immediately or fall back to `IMemoryCache`?
-* **Remediation**: Specify that a malformed claim immediately fails authorization (`false`), avoiding fallback mask attacks.
-
----
-
-### 🟢 Finding 6: Unexplained Acronyms & Undefined Interfaces (Nit)
-* **Affected Scope**: "The Problem" (line 21), CUJ 2 (line 51), Alternatives (line 224), NFRs (line 245).
-* **Details**: `sub` (Subject / UserId) and `sid` (SessionId) are referenced without definition. `IRbacInvalidationToken` and `ISessionStatusReader` are referenced without defining their packages or roles.
-* **Remediation**: Define `sub` and `sid` explicitly in CUJs, and clarify the roles of `IRbacInvalidationToken` and `ISessionStatusReader`.
-
----
-
-### 🟢 Finding 7: Helper Method Redundancy in Handler Snippet (Nit)
-* **Affected Scope**: Section 2 (line 137), Section 4 (line 172), Target File 2 (line 288).
-* **Details**: `PermissionBitmaskMapper.HasPermission(uint, PermissionBits)` is defined in Section 2, but the Section 4 handler snippet bypasses it with manual bitwise syntax `(bitmask & (uint)requiredBit) != 0`.
-* **Remediation**: Use `PermissionBitmaskMapper.HasPermission` consistently in the handler snippet.
+### [Ambiguity on Other Authentication Routes Under `/api/v1/auth`] - Severity: Nit
+* **Reviewer Lens:** `egm-comprehension`
+* **Affected Scope:** Section 6 ("Rate Limiting Partitioning for NAT Networks", lines 234–237) and Section 16 (lines 371–373)
+* **Discrepancy Description & Rationale**:  
+  The document specifies `20 req/min` for `/login` and `/register`, and `100 req/min` for `/refresh`, but does not explicitly state that remaining authentication endpoints (e.g. `/logout`, `/verify-email`) retain the default `20 req/min` policy.

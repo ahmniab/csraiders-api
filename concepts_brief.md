@@ -1,81 +1,78 @@
-# Token-Embedded Authorization Bitmask Claims (Option C)
+# Token-Embedded Authorization Bitmask Claims (Finalized Architecture)
 
 * **Author:** ahmniab
-* **Date:** 2026-11-11
+* **Date:** 2026-11-12
 
 ## Overview
 
-This proposal replaces endpoint database and cache queries during HTTP authorization checks with a compact 32-bit capability bitmask embedded directly into JWT access token claims. Instead of serializing 20+ arbitrary permission strings into tokens (which inflates headers and triggers proxy rejections), each permission in `PermissionCatalog` maps to an individual bit in a 32-bit integer scalar (`perms`). 
+This feature eliminates database queries and in-memory cache lookups during protected endpoint authorization in `CsRaiders.Api` by embedding a 64-bit capability bitmask directly into JWT access token claims (`perms`).
 
-Authorization checks in `PermissionAuthorizationHandler` evaluate permissions locally via a bitwise AND operation (`(userBitmask & requiredPermissionBit) != 0`), executing in sub-nanoseconds without hitting PostgreSQL or local `IMemoryCache`.
-
-To bound authorization revocation delay to 5 minutes, access token lifetime is set to 5 minutes. The proposal includes concrete architectural hardening to mitigate database row-lock contention, office NAT rate limiting, multi-tab race conditions, and migration compatibility.
+To balance operational safety, zero-downtime maintainability, and sub-nanosecond endpoint performance:
+1. **Database Schema Remains Untouched:** PostgreSQL continues to store permissions as strings (`roles.permissions text[]` and the `user_permissions` table). This eliminates breaking schema migrations, preserves granular audit metadata (`granted_by`, `granted_at`), and protects stored data against bit-shift corruption.
+2. **Pre-Production Fail-Fast Enforcement:** Because the application has no active production traffic, legacy token dual-read fallback and memory cache lookups are completely removed. If an incoming access token lacks the `"perms"` claim, the authorization handler immediately fails the check.
+3. **Decimal Integer String Claim:** The 64-bit bitmask is emitted in the JWT payload as a decimal integer string (`"perms": "1048575"`), preventing JavaScript 53-bit floating-point truncation in web clients while maintaining zero-allocation parsing in .NET.
 
 ## Analysis
 
-A multi-lens Goldfish review across system architecture, codebase contracts, operational readiness, developer ergonomics, and inventive contradiction elimination identified the following technical requirements and safeguards:
-
-### 1. Capability Bitmask Representation (Payload Optimization)
-* **Contract:** `PermissionCatalog.cs` defines 20 granular permissions. 
-* **Bitmask Mapping:** In `CsRaiders.Api.Domain`, define a flags enum or static bitmask dictionary mapping each permission to a single bit `(1 << 0)` through `(1 << 19)`. 32 bits provide headroom for up to 32 permissions (or 64 bits with `ulong` for up to 64 permissions).
-* **Token Payload Impact:** A single claim (`perms: 0x000F` or integer string) is embedded into the JWT by `ITokenService.CreateAccessToken(Guid userId, Guid sessionId, uint permissionsBitmask, DateTimeOffset now)`.
-* **Header Size:** Total JWT size remains lean (~280 bytes vs. 1.5+ KB for raw strings), avoiding Cloudflare/ALB/Nginx `431 Request Header Fields Too Large` proxy rejections.
-
-### 2. Authorization Handler Evaluation & In-Flight Migration Fallback
-* In `PermissionAuthorizationHandler.cs`:
+### 1. Endpoint Authorization Pipeline & Dependency Stripping
+* **Execution Path in `PermissionAuthorizationHandler`:**
   1. Inspect `context.User.FindFirst("perms")`.
-  2. **If claim is present:** Parse the integer scalar and evaluate `(bitmask & requiredBit) != 0`. If true, mark requirement as succeeded immediately. This bypasses `IMemoryCache` and eliminates database reads entirely.
-  3. **If claim is missing (Migration Fallback):** For in-flight tokens issued prior to deployment (legacy tokens containing only `sub` and `sid`), fall back to the existing `IMemoryCache` and repository lookup. This prevents `403 Forbidden` authorization failures during zero-downtime rolling deployments.
+  2. If the claim is missing or cannot be parsed as a 64-bit integer, authorization fails immediately (`context.Fail()`).
+  3. If present, evaluate `(bitmask & (long)requiredBit) != 0`. If matched, `context.Succeed(requirement)`.
+* **Zero I/O Guarantee:** `PermissionAuthorizationHandler` drops all dependencies on `IMemoryCache`, `IUserRepository`, `IRoleRepository`, and `IRbacInvalidationToken`. It runs entirely as an in-memory, CPU-bound operation (< 1 nanosecond).
 
-### 3. Database Write Contention & Lock Duration Mitigation
-* **Problem:** In `RefreshTokenCommandHandler.cs`, token refresh runs inside an exclusive row lock (`SELECT ... FOR UPDATE` on `sessions`). Shortening token lifetime to 5 minutes triples refresh frequency. Executing EF Core split queries (`UserRepository.FindByIdWithPermissionsAsync` and `RoleRepository.FindByIdsAsync`) while holding this row lock would tie up PostgreSQL connections and trigger write contention.
-* **Mitigation:**
-  - Execute permission resolution *before* acquiring the row lock on `sessions`, or utilize a short-lived cached read of user permissions.
-  - The row lock transaction on `sessions` should only perform cryptographic hash verification, rotation, and commit, keeping lock hold time under 2 ms.
+### 2. Token Issuance & Refresh Lifecycle
+* **Decoupled Resolution in `RefreshTokenCommandHandler`:**
+  - Token refresh occurs once every 5 minutes per session.
+  - Permissions are resolved from `IUserRepository` and `IRoleRepository` *prior* to acquiring the exclusive row lock on `sessions`.
+  - The resolved permission strings are converted to a 64-bit scalar bitmask via `PermissionBitmaskMapper.ToBitmask(effectivePermissions)`.
+  - Row-lock hold time on `sessions` remains under 2 ms.
+* **JWT Claim Representation:**
+  - Emitted as a standard string claim: `new Claim("perms", bitmask.ToString(CultureInfo.InvariantCulture))`.
+  - Quoting the integer adds only 2 bytes to the header payload (token size remains < 280 bytes).
+  - Web clients decode the claim using modern native `BigInt` bitwise operations:
+    ```typescript
+    const perms = BigInt(jwtPayload.perms);
+    const hasPermission = (perms & (1n << BigInt(permissionBitIndex))) !== 0n;
+    ```
+    This bypasses JavaScript's `Number.MAX_SAFE_INTEGER` ($2^{53} - 1$) ceiling without requiring string conversion loops.
 
-### 4. IP Rate Limiter Hardening for NAT Networks
-* **Problem:** In `CsRaidersApiServiceExtensions.cs`, all routes under `/api/v1/auth` are throttled to **20 requests per minute per IP address**. With 5-minute tokens, multiple active users sharing an office, school campus, or mobile NAT IP will exceed 20 refresh requests per minute, triggering cascading HTTP 429 lockouts.
-* **Mitigation:**
-  - Partition the rate limiter: exclude `/api/v1/auth/refresh` from the blanket 20 req/min IP window, or apply a session-based / user-based rate limit for refresh endpoints while keeping strict IP limits on `/api/v1/auth/login`.
-
-### 5. Multi-Tab Refresh Synchronization & Grace Window
-* **Problem:** `Session.TryRotate` has a single `PreviousRefreshTokenHash` slot and a 15-second grace window (`AuthRules.RefreshReplayGraceWindow`). When access tokens expire every 5 minutes, single-page applications with multiple tabs open will issue concurrent refresh requests. If network lag or background tab throttling delays a request past 15 seconds, `RefreshOutcome.ReuseDetected` revokes the user's entire session (`session_compromised`).
-* **Mitigation:**
-  - Frontend client must implement a singleton refresh promise/mutex so concurrent 401s reuse a single in-flight refresh call.
-  - SRE observability: Record OpenTelemetry metrics distinguishing within-session rotation races from cross-client token reuse attacks.
-
-### 6. Revocation Lag Acceptance & Boundary
-* **Accepted Trade-off:** Administrative role demotions and permission revocations will take up to 5 minutes (+ 30 seconds clock skew tolerance) to take effect on active access tokens. 
-* Immediate account suspension or forced logout continues to be enforced on every request by `SessionValidationMiddleware.cs` via session revocation checks.
+### 3. Database & Domain Stability
+* **Why Database String Storage is Maintained:**
+  - **No Schema Migrations:** Avoids DDL changes, data migration scripts, and table drops (`user_permissions`).
+  - **Bit-Index Immunity:** If permission flags are reordered, deprecated, or added in C#, database records remain completely unaffected.
+  - **Audit Metadata Preservation:** Relational records of who granted or revoked overrides (`granted_by`, `granted_at`) remain intact.
+  - **Admin API Contracts:** REST endpoints continue to consume and produce readable permission names (`["course:read", "user:write"]`) without impedance mismatch.
 
 ## Goals vs. Non-Goals
 
 * **In-Scope Goals:**
-  * Eliminate database queries and local memory cache lookups during endpoint authorization checks.
-  * Keep JWT header footprint minimal (~280 bytes) using a compact 32-bit bitmask scalar.
-  * Provide dual-read fallback in `PermissionAuthorizationHandler` for zero-downtime deployment.
-  * Protect PostgreSQL connection pools by decoupling permission resolution from session row locks during token refresh.
-  * Adjust rate limiting on `/api/v1/auth/refresh` to support multi-user NAT environments.
+  * Reject any JWT lacking the `perms` claim immediately; eliminate dual-read fallback and `IMemoryCache` lookups.
+  * Emit the 64-bit bitmask as an integer string in the JWT payload (`"perms": "1048575"`).
+  * Evaluate `[HasPermission]` locally via bitwise operations (`(bitmask & requiredBit) != 0`) in under 1 nanosecond.
+  * Strip repository, cache, and invalidation dependencies from `PermissionAuthorizationHandler`.
+  * Retain existing string-based PostgreSQL schemas (`roles.permissions text[]`, `user_permissions`).
+  * Convert permission string sets to 64-bit scalar bitmasks at token issuance (login and refresh).
 * **Out-of-Scope Non-Goals:**
-  * Zero-delay (0 ms) instantaneous permission revocation (accepted trade-off: bounded to 5-minute token lifetime).
-  * Removing `SessionValidationMiddleware` (session revocation, idle timeouts, and single-session enforcement remain active).
+  * In-flight legacy token dual-read backward compatibility (dropped per pre-production status).
+  * Database schema alterations or EF Core migrations (database remains untouched).
+  * Runtime-dynamic permission additions (catalog is compile-time static).
 
 ## Alternatives Weighed
 
-1. **Option A: Embed Raw Permission Strings in 5-Minute Access Tokens**
-   * *Status:* Rejected during brainstorm review.
-   * *Reason:* Serializing 20 permission strings inflates the `Authorization` header to >1.5 KB, risking 431 proxy rejections, consuming unnecessary network bandwidth, and offering no technical advantage over a compact scalar bitmask.
-2. **Option B: Extend In-Memory Cache TTL to 5 Minutes in PermissionAuthorizationHandler**
-   * *Status:* Weighed as minimalist alternative.
-   * *Reason:* While Option B requires only a one-line change and preserves 0 ms instant revocation via `IRbacInvalidationToken`, the user selected Option C to move authorization evaluation entirely into claims and eliminate in-process caching lookups during endpoint execution.
-3. **Option C: Compact 32-Bit Capability Bitmask in 5-Minute Access Tokens (Selected)**
-   * *Status:* Accepted for design drafting.
-   * *Reason:* Resolves the header bloat contradiction while fulfilling the requirement to eliminate endpoint database and cache lookups.
+1. **Option 1: End-to-End Bigint Database Persistence**
+   * *Status:* Rejected after review.
+   * *Reason:* Yields negligible performance benefit during the 5-minute refresh cycle while creating high migration friction, permanently freezing bit-shift indices into database rows, and destroying per-override audit history.
+2. **Option 2: Raw JSON Number Claim vs. Integer String Claim**
+   * *Status:* Integer string selected.
+   * *Reason:* Integer strings prevent silent bit corruption in JavaScript web clients without incurring memory allocations or performance overhead in .NET.
+3. **Option 3: Dual-Read Fallback in Authorization Handler**
+   * *Status:* Rejected.
+   * *Reason:* The application is pre-production. Immediate fail-fast rejection removes branching complexity and completely decouples the authorization handler from the database and cache.
 
 ## Key Decisions & Staging for Next Steps
 
-* **Decision 1: Bitmask Schema:** Define a `PermissionBits` uint enum / mapper in `CsRaiders.Api.Domain` mapping all permissions from `PermissionCatalog` to powers of 2.
-* **Decision 2: Token Service Interface:** Update `ITokenService.CreateAccessToken` to accept `uint permissionsBitmask` and emit claim `perms`.
-* **Decision 3: Handler Dual-Read:** Update `PermissionAuthorizationHandler` to test bitmask claim first, falling back to existing `IMemoryCache` when absent.
-* **Decision 4: Refresh Lock Decoupling:** In `RefreshTokenCommandHandler`, resolve user permissions prior to acquiring the pessimistic row lock on `sessions`.
-* **Decision 5: Rate Limiter Configuration:** Partition the `/api/v1/auth` rate limiter to prevent NAT lockouts on refresh.
+* **Decision 1: Persistence Layer:** Retain existing string-based storage in PostgreSQL (`roles.permissions text[]` and `user_permissions`).
+* **Decision 2: Token Claim Contract:** Emit `perms` as a decimal integer string in JWT access tokens.
+* **Decision 3: Handler Architecture:** `PermissionAuthorizationHandler` rejects any token missing `perms` immediately and executes sub-nanosecond bitwise checks with zero I/O dependencies.
+* **Decision 4: Client Bitwise Standard:** Frontend evaluates permissions via native JavaScript `BigInt` bitwise operations.

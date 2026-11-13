@@ -1,109 +1,101 @@
-# Stage 7 Critic Review Report (Re-Audit)
+# Stage 7 Critic Review Report
 
-* **Document:** [`docs/designs/token_embedded_authorization_bitmask_claims.md`](file:///mnt/projects/web/backend/dotnet/CsRaiders.Api/docs/designs/token_embedded_authorization_bitmask_claims.md)
-* **Target Scope:** Lines 1–273 (`FeatureRange`)
-* **Reviewers:** Hostile Design Critic (`egm-design`), Structural Layout Validator (`egm-structural`), Technical Copy Editor (`egm-style`)
-* **Standard:** `feature-spec-standard`
-
----
-
-## 1. Executive Re-Audit Summary
-
-Stage 7 re-evaluated `FeatureRange` following author updates to the Open Questions section. 
-
-The re-audit identified critical blockers and internal specification contradictions that must be reconciled:
-1. **Shared NAT Rate Limiting Contradiction (🔴 Blocker)**: The author answered Open Question #2 with *"keep the rate limiting logic as exist"* (retaining 20 req/min per IP across all `/api/v1/auth` routes). Under 5-minute access tokens (~0.2 refreshes/min/user), as few as 100 active users behind a campus or corporate NAT will completely saturate the 20 req/min quota on background refreshes alone, triggering cascading HTTP 429 rejections, token expiration, and widespread user logouts. Furthermore, this answer directly contradicts Section 6, Goal 6, Problem 4, and the architecture diagram, which mandate partitioning `/api/v1/auth/refresh` to 100 req/min.
-2. **Claim Encoding Contradiction (🔴 Blocker)**: The author answered Open Question #1 with *"Incode the mask as a normal decimal integer not a string"*. However, Section 3, Section 4, and the implementation plan still specify string claim emission (`new Claim("perms", ToString(...))`) and string parsing (`uint.TryParse(permsClaim.Value)`). In standard ASP.NET Core `ClaimsIdentity`, claim values are strings; emitting a raw JSON number requires adding it via `SecurityTokenDescriptor.Claims` as an `int`/`long` object.
-3. **Fictional Domain Permission Catalog (🔴 Blocker)**: The proposed `PermissionBits` enum (lines 110–133) invents 20 arbitrary CRUD permissions (`UsersRead`, `AssessmentsGrade`, `CoursesDelete`, `SystemMetricsRead`) that do not exist in the domain model, while omitting over 10 actual production permissions from `CsRaiders.Api.Domain.Constants.PermissionCatalog` (`course:read`, `course:purge`, `payment:verify`, `session:revoke`, etc.).
-4. **Transaction Lifecycle Incompatibility (🔴 Blocker)**: Proposing manual transaction commits inside `RefreshTokenCommandHandler` conflicts with MediatR's ambient `TransactionBehavior<TMessage, TResponse>`, which owns transaction boundaries. Resolving permissions before validating token signatures or session state also introduces an unauthenticated query amplification DoS vector.
-5. **Administrative Revocation Safety Gap (🟡 Major)**: Because access token permission claims lag administrative mutations by up to 5.5 minutes, commands that revoke critical permissions (`payment:*`, `role:manage`, `user:write`) must explicitly invoke `ISessionRepository.RevokeAllByUserIdAsync` to force immediate 5-second termination via `SessionValidationMiddleware.cs`.
-6. **Structural Hierarchy & List Formatting Defects (🟡 Major / 🟢 Nit)**: Unindented answer lines in Open Questions malformed the CommonMark list AST, `Additional Resources` and `Future Improvements` remain orphaned as `###` subsections, and section dividers remain asymmetric.
+**Target:** `docs/designs/token_embedded_authorization_bitmask_claims.md` (`lines 1-297`)  
+**Standard:** `resources/document_standards/feature-spec-standard.md`  
+**Report Destination:** `critic_report.md`
 
 ---
 
-## 2. Prioritized Review Findings
+## Reviewer Status
 
-### 🔴 Blocker Findings
+| Reviewer | Status |
+| --- | --- |
+| `egm-design` | completed |
+| `egm-structural` | completed |
+| `egm-style` | completed |
 
-#### [BLOCKER 1] Shared NAT Denial of Service under 20 Req/Min IP Rate Limiter
-* **Lens:** Design Critic & Copy Editor
-* **Affected Scope:** Lines 20, 30, 42–43, 78, 205–213
-* **Details:**  
-  Retaining the existing 20 req/min per IP rate limiter on `/api/v1/auth` while slashing access token lifetime to 5 minutes guarantees service denial for multi-user NAT networks:
-  $$\text{NAT Capacity Ceiling} = \frac{20\text{ requests/min}}{0.2\text{ refreshes/min/user}} = 100\text{ active users}$$
-  In an office or campus network with $\ge 100$ active users, passive background refreshes alone consume 100% of the IP's quota. Any login, registration, or multi-tab refresh burst triggers HTTP 429, causing tokens to expire and forcibly logging users out.
-* **Actionable Recommendation:** Reconcile the contradiction. Partition `/api/v1/auth/refresh` into an independent rate limiter policy (`auth-refresh`) with a limit of 100–120 req/min per IP (or keyed by `SessionId`), while keeping `/api/v1/auth/login` at 20 req/min per IP.
-
----
-
-#### [BLOCKER 2] Claim Data Type Contradiction: JSON Integer vs. String Claim
-* **Lens:** Design Critic & Copy Editor
-* **Affected Scope:** Lines 40–41, Lines 150–155, Line 171, Line 330
-* **Details:**  
-  The author's note specifies encoding `perms` as a numeric integer, but Section 3 specifies `new Claim("perms", permissionsBitmask.ToString(CultureInfo.InvariantCulture))` and Section 4 uses `uint.TryParse(permsClaim.Value)`.
-* **Actionable Recommendation:** Specify exact JSON integer serialization via `SecurityTokenDescriptor.Claims`:
-  ```csharp
-  descriptor.Claims = new Dictionary<string, object>
-  {
-      ["perms"] = (long)permissionsBitmask
-  };
-  ```
-  In `PermissionAuthorizationHandler`, handle numeric claim extraction cleanly:
-  ```csharp
-  var permsClaim = context.User.FindFirst("perms");
-  if (permsClaim != null && uint.TryParse(permsClaim.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var bitmask))
-  ```
+## Severity Breakdown
+* 🔴 **Blocker**: 1
+* 🟡 **Major**: 2
+* 🟢 **Nit**: 4
 
 ---
 
-#### [BLOCKER 3] Domain Model Hallucination: Fictional Permission Catalog
-* **Lens:** Design Critic & Copy Editor
-* **Affected Scope:** Lines 49, 54, Lines 108–134
-* **Details:**  
-  `PermissionBits` defines 20 synthetic flags (`UsersRead`, `AssessmentsGrade`, etc.). `PermissionCatalog.cs` defines lowercase colon-delimited constants:
-  `course:read`, `course:write`, `course:purge`, `lesson:write`, `asset:write`, `question:write`, `quiz:write`, `user:read`, `user:write`, `role:manage`, `payment:read`, `payment:verify`, `payment:refund`, `notification:send`, `analytics:read`, `audit:read`, `settings:read`, `settings:write`, `session:multi`, `session:revoke`.
-* **Actionable Recommendation:** Replace `PermissionBits` with a 1:1 bitwise mapping of the exact constants in `PermissionCatalog.cs` (`CourseRead = 1u << 0` for `"course:read"`, etc.).
+## Prioritized Findings (Blockers -> Major -> Nits)
+
+### [Ambient Transaction Incompatibility & Unverified Database Query Amplification in Token Refresh] - Severity: Blocker
+* **Reviewer Lens:** `egm-design`
+* **Affected Scope:** `Lines 62, 98–101, 219–228` (`CUJ 3`, `Technical Plan §1`, `Technical Plan §5`)
+* **Discrepancy Description**:  
+  The plan mandates "Pre-Lock Resolution" where `RefreshTokenCommandHandler` queries effective permissions from `users.FindByIdWithPermissionsAsync` and `roles.FindByIdsAsync` *prior* to acquiring the `sessions.FindByIdForUpdateAsync` pessimistic row lock, asserting it will "commit transaction (< 2 ms)". This introduces two critical defects:
+  1. **Framework Lifecycle Violation**: MediatR's ambient `TransactionBehavior<TMessage, TResponse>` controls database transactions at the pipeline boundary (`transactions.BeginAsync` before handler execution and `transaction.CommitAsync` after). Handlers cannot manually commit transactions without throwing runtime exceptions.
+  2. **Unauthenticated Query Amplification DoS**: Querying `users` and `roles` before verifying session existence (`session is null`), ownership (`session.UserId != claims.UserId`), and rotation validity (`session.TryRotate(...)`) allows callers presenting expired, forged, revoked, or replayed refresh tokens to force PostgreSQL multi-table joins without a valid session.
+* **Rationale & Recommendation**:  
+  Reorder execution to fail fast on invalid sessions before hitting permission repositories:
+  1. Verify the refresh token cryptographic signature and expiration via `tokens.TryValidateRefreshToken`.
+  2. Acquire the session row lock via `sessions.FindByIdForUpdateAsync(claims.SessionId, ct)`.
+  3. Validate ownership and execute rotation via `session.TryRotate(...)`.
+  4. Only on `RefreshOutcome.Rotated`, resolve effective permissions from `users` and `roles`, compute the bitmask via `PermissionBitmaskMapper.ToBitmask`, and issue the token. (The row lock targets only the specific session row, so holding it across permission queries does not contend with other users).
+  5. Remove all claims of manual handler commits and allow ambient `TransactionBehavior` to commit the transaction atomically.
 
 ---
 
-#### [BLOCKER 4] Transaction Lifecycle Conflict & DoS Amplification
-* **Lens:** Design Critic
-* **Affected Scope:** Lines 29, 60, Lines 90–95, Lines 188–204
-* **Details:**  
-  1. `TransactionBehavior<TMessage, TResponse>` opens the database transaction before `RefreshTokenCommandHandler.Handle` and commits after. Manual commits inside the handler cause `InvalidOperationException`.
-  2. Resolving permissions before validating the session row allows unauthenticated or replayed tokens to force expensive joins across `users` and `roles`.
-* **Actionable Recommendation:**
-  Validate the refresh token and session first (`session.TryRotate(...)`). If valid, resolve permissions from memory cache (`perms:{userId}`) or database, pass to token issuance, and let `TransactionBehavior` commit atomically.
+### [Administrative Privilege Revocation Propagation Gap] - Severity: Major
+* **Reviewer Lens:** `egm-design`
+* **Affected Scope:** `Lines 31, 37, 268–272` (`Goals`, `Non-Goals`, `Non-Functional Requirements §Security & Privacy`)
+* **Discrepancy Description**:  
+  The specification accepts a 5-minute propagation delay (+ 30s clock skew tolerance) for administrative permission revocations and role modifications. However, when an administrator revokes critical capabilities (`payment:refund`, `role:manage`, `user:write`, `session:revoke`) or demotes a compromised user, the affected client retains active administrative privileges on their 5-minute JWT access token until expiration. While `SessionValidationMiddleware.cs` enforces 5-second revocation for explicit session terminations, the document does not require permission/role revocation commands to invalidate active sessions.
+* **Rationale & Recommendation**:  
+  Explicitly mandate in the security specifications that commands modifying or revoking sensitive roles or permissions (e.g. in `RbacCommands.cs`) must invoke `ISessionRepository.RevokeAllByUserIdAsync(targetUserId)` to force immediate 5-second termination via `SessionValidationMiddleware.cs`.
 
 ---
 
-### 🟡 Major Findings
-
-#### [MAJOR 1] Administrative Revocation Safety Gap
-* **Lens:** Design Critic
-* **Affected Scope:** Line 34, Lines 242–246
-* **Details:** Revoking critical permissions (`payment:*`, `role:manage`, `user:write`) takes up to 5.5 minutes to propagate across active access tokens.
-* **Actionable Recommendation:** Mandate that commands altering sensitive roles/permissions in `RbacCommands.cs` call `ISessionRepository.RevokeAllByUserIdAsync` to force immediate 5-second termination via `SessionValidationMiddleware.cs`.
-
-#### [MAJOR 2] Corrupted Claim Fallback Defect
-* **Lens:** Design Critic & Copy Editor
-* **Affected Scope:** Lines 168–185
-* **Details:** If `"perms"` exists but fails parsing, the code falls through to legacy database queries. If present but corrupted, authorization must fail closed immediately.
-* **Actionable Recommendation:** Execute legacy cache fallback *only* when `permsClaim == null`. If `permsClaim != null` and parsing fails, fail closed (`return Task.CompletedTask`).
-
-#### [MAJOR 3] Structural Layout & List AST Malformation
-* **Lens:** Structural Layout Validator
-* **Affected Scope:** Lines 40–43, Lines 259–271
-* **Details:**
-  - Raw unindented answer text terminates tight list items in Open Questions.
-  - `Additional Resources` and `Future Improvements` appear as orphaned `###` subsections.
-  - Section dividers are missing between upper-half `##` sections.
-* **Actionable Recommendation:** Indent resolutions under question bullets, promote trailing sections to `##`, and restore symmetric 80-character dividers between all `##` sections.
+### [Structural Heading Hierarchy Violation for Trailing Sections] - Severity: Major
+* **Reviewer Lens:** `egm-structural`
+* **Affected Scope:** `Lines 285–295` (`### Additional Resources`, `### Future Improvements`)
+* **Discrepancy Description**:  
+  Following the horizontal divider at Line 285 that concludes `## Non-Functional Requirements`, `Additional Resources` (Line 286) and `Future Improvements` (Line 293) are rendered as H3 (`###`) subsections rather than top-level H2 (`##`) sections. This structurally orphans them under `## Non-Functional Requirements`, violating CommonMark structural standards and corrupting table-of-contents generation.
+* **Rationale & Recommendation**:  
+  Promote both sections to top-level H2 headings:
+  - `## Additional Resources`
+  - `## Future Improvements`
 
 ---
 
-### 🟢 Nit Findings
+### [Physically Impossible Sub-Nanosecond Latency Assertions] - Severity: Nit
+* **Reviewer Lens:** `egm-style`
+* **Affected Scope:** `Lines 13, 52, 94, 215, 277` (`Overview`, `CUJ 1`, `Technical Plan §1`, `Technical Plan §4`, `Performance & Latency`)
+* **Discrepancy Description**:  
+  The specification repeatedly asserts that `PermissionAuthorizationHandler` evaluates authorization in `< 1 nanosecond`. In ASP.NET Core, evaluating `context.User.FindFirst("perms")`, parsing `long.TryParse`, resolving `PermissionBitmaskMapper.GetBit`, and calling `context.Succeed(requirement)` incurs claim iteration, string scanning, and method dispatch overhead typically taking ~20–50 nanoseconds (sub-microsecond). Claiming sub-nanosecond latency for the entire handler pipeline is technically unrealistic.
+* **Rationale & Recommendation**:  
+  Calibrate the claims to "sub-microsecond" (or "~20–50 ns") for the authorization handler execution, noting that only the isolated bitwise instruction (`(bitmask & requiredBit) != 0`) executes in sub-nanoseconds.
 
-* **[NIT 1] Uncalibrated Latency Claims**: Calibrate `< 1 ns` claims to sub-microsecond handler execution time.
-* **[NIT 2] Redundant Meta-Tags**: Remove redundant `"Rejected by author:"` prefixes in Alternatives Considered.
-* **[NIT 3] Clickable Relative Links**: Format paths in `Additional Resources` as clickable markdown links.
+---
+
+### [Redundant Author Prefixes in Alternatives Considered] - Severity: Nit
+* **Reviewer Lens:** `egm-style`
+* **Affected Scope:** `Lines 246, 250, 255, 260` (`Alternatives Considered`)
+* **Discrepancy Description**:  
+  Every alternative considered contains repetitive boilerplate text: `* **Reason for Rejection**: Rejected by author: [explanation]`.
+* **Rationale & Recommendation**:  
+  Streamline the entry to `* **Reason for Rejection**: [explanation]`.
+
+---
+
+### [Plain Code-Tick File Paths in Resource References] - Severity: Nit
+* **Reviewer Lens:** `egm-style`
+* **Affected Scope:** `Lines 287–290` (`Additional Resources`)
+* **Discrepancy Description**:  
+  File paths in `Additional Resources` are formatted as plain monospace text rather than clickable markdown links with `file:///` URIs.
+* **Rationale & Recommendation**:  
+  Format each path as a clickable markdown link using the `file:///` scheme (e.g. [`PermissionCatalog.cs`](file:///mnt/projects/web/backend/dotnet/CsRaiders.Api/src/CsRaiders.Api.Domain/Constants/PermissionCatalog.cs)).
+
+---
+
+### [Asymmetric Horizontal Dividers Across Document Sections] - Severity: Nit
+* **Reviewer Lens:** `egm-structural`
+* **Affected Scope:** `Lines 7, 69, 238, 262, 285, 296`
+* **Discrepancy Description**:  
+  Horizontal dividers (80-character dashes) are placed inconsistently: one appears after the metadata header, but sections `## Overview`, `## The Problem`, `## Goals`, `## Non-Goals`, `## Open Questions`, and `## Critical User Journeys` lack dividers. Dividers then reappear before `## Technical Plan`, `## Alternatives Considered`, `## Non-Functional Requirements`, etc.
+* **Rationale & Recommendation**:  
+  Apply horizontal dividers consistently between all top-level `##` sections or standardize on clean whitespace separation without arbitrary 80-character dash lines.
