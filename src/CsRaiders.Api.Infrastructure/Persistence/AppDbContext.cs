@@ -18,6 +18,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
     public DbSet<SecurityEvent> SecurityEvents => Set<SecurityEvent>();
     public DbSet<AppSetting> AppSettings => Set<AppSetting>();
+    public DbSet<DeadLetterEmail> DeadLetterEmails => Set<DeadLetterEmail>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -48,6 +48,66 @@ namespace CsRaiders.Api.Infrastructure.Migrations
                     b.ToTable("app_settings", (string)null);
                 });
 
+            modelBuilder.Entity("CsRaiders.Api.Domain.Entities.DeadLetterEmail", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt_count");
+
+                    b.Property<string>("CorrelationId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("correlation_id");
+
+                    b.Property<string>("ErrorReason")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("error_reason");
+
+                    b.Property<DateTimeOffset>("FailedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("failed_at");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("purpose");
+
+                    b.Property<string>("Recipient")
+                        .IsRequired()
+                        .HasColumnType("citext")
+                        .HasColumnName("recipient");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("subject");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("pk_dead_letter_emails");
+
+                    b.HasIndex("FailedAt")
+                        .IsDescending()
+                        .HasDatabaseName("ix_dead_letter_emails_failed_at");
+
+                    b.HasIndex("Recipient")
+                        .HasDatabaseName("ix_dead_letter_emails_recipient");
+
+                    b.ToTable("dead_letter_emails", (string)null);
+                });
+
             modelBuilder.Entity("CsRaiders.Api.Domain.Entities.LoginAttempt", b =>
                 {
                     b.Property<Guid>("Id")

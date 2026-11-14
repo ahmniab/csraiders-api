@@ -46,7 +46,10 @@ public sealed class Argon2idPasswordHasher(IConfiguration configuration) : IPass
     {
         var argon = new Argon2id(Encoding.UTF8.GetBytes(password.Normalize(NormalizationForm.FormC)))
         {
-            Salt = salt, MemorySize = MemoryKb, Iterations = 2, DegreeOfParallelism = 1
+            Salt = salt, 
+            MemorySize = MemoryKb, 
+            Iterations = 2, 
+            DegreeOfParallelism = 1
         };
         ct.ThrowIfCancellationRequested();
         return await argon.GetBytesAsync(32);

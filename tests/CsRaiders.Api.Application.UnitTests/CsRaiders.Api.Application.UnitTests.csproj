@@ -15,5 +15,6 @@
     <Using Include="Xunit" />
     <ProjectReference Include="../../src/CsRaiders.Api.Domain/CsRaiders.Api.Domain.csproj" />
     <ProjectReference Include="../../src/CsRaiders.Api.Application/CsRaiders.Api.Application.csproj" />
+    <ProjectReference Include="../../src/CsRaiders.Api.Infrastructure/CsRaiders.Api.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

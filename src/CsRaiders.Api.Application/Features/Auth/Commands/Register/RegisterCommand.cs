@@ -1,3 +1,5 @@
+using CsRaiders.Api.Application.Common.EmailTemplates.Models;
+using CsRaiders.Api.Application.Common.EmailTemplates.Templates;
 using CsRaiders.Api.Application.Common.Interfaces.Repositories;
 using CsRaiders.Api.Application.Common.Interfaces.Security;
 using CsRaiders.Api.Application.Common.Abstractions;
@@ -36,9 +38,12 @@ public sealed class RegisterCommandHandler(
     IPendingRegistrationRepository pendingRegistrations,
     IPasswordHasher passwords,
     IOtpGenerator otps,
-    IEmailQueue emailQueue,
-    IPlatformClock clock) : IRequestHandler<RegisterCommand, RegisterResult>
+    ITemplatedEmailQueue emailQueue,
+    IPlatformClock clock,
+    RegistrationOtpTemplate? otpTemplate = null) : IRequestHandler<RegisterCommand, RegisterResult>
 {
+    private readonly RegistrationOtpTemplate _otpTemplate = otpTemplate ?? new();
+
     public async ValueTask<RegisterResult> Handle(RegisterCommand request, CancellationToken ct)
     {
         var email = Email.Create(request.Email);
@@ -57,7 +62,7 @@ public sealed class RegisterCommandHandler(
         {
             var result = staged.Reissue(displayName, otpHash, now);
             if (result != Domain.Enums.OtpSendResult.Sent) return RegisterResult.Generic();
-            return EnqueueRegistration(email, otp) ? RegisterResult.Generic() : RegisterResult.Capacity();
+            return EnqueueRegistration(email, otp, displayName) ? RegisterResult.Generic() : RegisterResult.Capacity();
         }
 
         var password = await passwords.HashAsync(request.Password, ct);
@@ -65,10 +70,12 @@ public sealed class RegisterCommandHandler(
 
         var registration = PendingRegistration.Start(email, displayName, password.Hash!, otpHash, null, now);
         await pendingRegistrations.AddAsync(registration, ct);
-        return EnqueueRegistration(email, otp) ? RegisterResult.Generic() : RegisterResult.Capacity();
+        return EnqueueRegistration(email, otp, displayName) ? RegisterResult.Generic() : RegisterResult.Capacity();
     }
 
-    private bool EnqueueRegistration(Email email, string otp) =>
-        emailQueue.TryEnqueue(new EmailMessage(email.Value, "Verify your CS Raiders account",
-            $"Your verification code is {otp}.", EmailPurpose.RegistrationOtp));
+    private bool EnqueueRegistration(Email email, string otp, string displayName) =>
+        emailQueue.TryEnqueueTemplate(
+            email.Value,
+            _otpTemplate,
+            new RegistrationOtpTemplateModel(otp, displayName));
 }

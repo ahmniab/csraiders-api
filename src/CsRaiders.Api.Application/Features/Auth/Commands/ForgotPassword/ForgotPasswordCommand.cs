@@ -1,5 +1,7 @@
 using System.Net;
 using System.Security.Cryptography;
+using CsRaiders.Api.Application.Common.EmailTemplates.Models;
+using CsRaiders.Api.Application.Common.EmailTemplates.Templates;
 using CsRaiders.Api.Application.Common.Interfaces.Repositories;
 using CsRaiders.Api.Application.Common.Interfaces.Security;
 using CsRaiders.Api.Application.Common.Abstractions;
@@ -27,10 +29,13 @@ public sealed class ForgotPasswordCommandValidator : AbstractValidator<ForgotPas
 public sealed class ForgotPasswordCommandHandler(
     IUserRepository users,
     IPasswordResetTokenRepository resetTokens,
-    IEmailQueue emailQueue,
+    ITemplatedEmailQueue emailQueue,
     ISecurityAuditWriter audit,
-    IPlatformClock clock) : IRequestHandler<ForgotPasswordCommand, ForgotPasswordResult>
+    IPlatformClock clock,
+    PasswordResetTemplate? resetTemplate = null) : IRequestHandler<ForgotPasswordCommand, ForgotPasswordResult>
 {
+    private readonly PasswordResetTemplate _resetTemplate = resetTemplate ?? new();
+
     public async ValueTask<ForgotPasswordResult> Handle(ForgotPasswordCommand request, CancellationToken ct)
     {
         var email = Email.Create(request.Email);
@@ -47,9 +52,13 @@ public sealed class ForgotPasswordCommandHandler(
         await resetTokens.AddAsync(token, ct);
         await audit.WriteAsync("password_reset_issued", user.Id, email, request.Ip, ct: ct);
 
-        var message = new EmailMessage(email.Value, "Reset your CS Raiders password",
-            $"Reset your password using this link: /reset-password?token={rawToken}", EmailPurpose.PasswordReset);
-        return emailQueue.TryEnqueue(message) ? new() : ForgotPasswordResult.Capacity();
+        var resetUrl = $"/reset-password?token={rawToken}";
+        return emailQueue.TryEnqueueTemplate(
+            email.Value,
+            _resetTemplate,
+            new PasswordResetTemplateModel(resetUrl, user.Name))
+            ? new()
+            : ForgotPasswordResult.Capacity();
     }
 }
 
