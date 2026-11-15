@@ -8,5 +8,6 @@ public sealed class HasPermissionAttribute : AuthorizeAttribute
 {
     internal const string PolicyPrefix = "permission:";
 
-    public HasPermissionAttribute(string permission) => Policy = PolicyPrefix + permission;
+    public HasPermissionAttribute(string permission) 
+        => Policy = PolicyPrefix + permission;
 }

@@ -10,10 +10,19 @@ namespace CsRaiders.Api.Infrastructure.Persistence.Repositories;
 public sealed class SessionRepository(AppDbContext db) : ISessionRepository, ISessionStatusReader
 {
     public async Task<SessionStatus?> ReadAsync(Guid sessionId, CancellationToken ct = default) =>
-        await db.Sessions.AsNoTracking().Where(s => s.Id == sessionId)
-            .Select(s => new SessionStatus(s.Id, s.UserId, s.ExpiresAt, s.IdleExpiresAt, s.RevokedAt != null))
+        await db.Sessions.AsNoTracking()
+            .Where(s => s.Id == sessionId)
+            .Select(s => new SessionStatus(
+                s.Id, 
+                s.UserId, 
+                s.ExpiresAt, 
+                s.IdleExpiresAt, 
+                s.RevokedAt != null))
             .SingleOrDefaultAsync(ct);
-    public async Task<Session?> FindByIdAsync(Guid sessionId, bool track = false, CancellationToken ct = default)
+    public async Task<Session?> FindByIdAsync(
+        Guid sessionId, 
+        bool track = false, 
+        CancellationToken ct = default)
     {
         var query = track ? db.Sessions.AsQueryable() : db.Sessions.AsNoTracking();
         return await query.FirstOrDefaultAsync(s => s.Id == sessionId, ct);

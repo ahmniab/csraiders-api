@@ -27,8 +27,14 @@ public static class CsRaidersApiAppExtensions
         if (app.Environment.IsDevelopment())
         {
             await using var scope = app.Services.CreateAsyncScope();
-            await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.MigrateAsync();
-            await scope.ServiceProvider.GetRequiredService<IdentitySeeder>().SeedAsync(allowSessionMultiForStudents: false);
+            await scope.ServiceProvider
+                .GetRequiredService<AppDbContext>()
+                .Database
+                .MigrateAsync();
+            
+            await scope.ServiceProvider.
+                GetRequiredService<IdentitySeeder>().
+                SeedAsync(allowSessionMultiForStudents: false);
 
             app.UseSwagger();
             app.UseSwaggerUI();

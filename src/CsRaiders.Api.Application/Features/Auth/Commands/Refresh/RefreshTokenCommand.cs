@@ -49,10 +49,18 @@ public sealed class RefreshTokenCommandHandler(
         if (session is null) return RefreshTokenResult.Failure("invalid_grant");
         if (session.UserId != claims.UserId) return RefreshTokenResult.Failure("invalid_grant");
 
-        var presentedHash = tokens.HashRefreshToken(request.RefreshToken);
+        var presentedHash = 
+            tokens.HashRefreshToken(request.RefreshToken);
 
-        var nextRefresh = tokens.CreateRefreshToken(session.UserId, session.Id, now);
-        var outcome = session.TryRotate(presentedHash, tokens.HashRefreshToken(nextRefresh), request.DeviceFingerprint, now);
+        var nextRefresh = 
+            tokens.CreateRefreshToken(session.UserId, session.Id, now);
+        
+        var outcome = session.TryRotate(
+            presentedHash, 
+            tokens.HashRefreshToken(nextRefresh), 
+            request.DeviceFingerprint, 
+            now);
+        
         switch (outcome)
         {
             case RefreshOutcome.Rotated:

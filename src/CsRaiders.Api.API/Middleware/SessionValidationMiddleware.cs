@@ -8,10 +8,17 @@ public sealed class SessionValidationMiddleware(RequestDelegate next)
 {
     private static readonly ConcurrentDictionary<Guid, (SessionStatus Status, DateTimeOffset CachedUntil)> Cache = new();
 
-    public async Task InvokeAsync(HttpContext context, ISessionStatusReader reader, ISessionCacheHook cacheHook, IAuthMetricsRecorder metrics)
+    public async Task InvokeAsync(
+        HttpContext context, 
+        ISessionStatusReader reader, 
+        ISessionCacheHook cacheHook, 
+        IAuthMetricsRecorder metrics)
     {
+        var sidClaim = 
+            context.User.FindFirstValue("sid");
+        
         if (context.User.Identity?.IsAuthenticated != true ||
-            !Guid.TryParse(context.User.FindFirstValue("sid"), out var sid))
+            !Guid.TryParse(sidClaim, out var sid))
         {
             await next(context);
             return;
@@ -19,7 +26,8 @@ public sealed class SessionValidationMiddleware(RequestDelegate next)
 
         var now = DateTimeOffset.UtcNow;
         SessionStatus? status = null;
-        if (Cache.TryGetValue(sid, out var cached) && cached.CachedUntil > now)
+        if (Cache.TryGetValue(sid, out var cached) 
+            && cached.CachedUntil > now)
         {
             metrics.Increment("session_cache.hit");
             status = cached.Status;
@@ -28,17 +36,28 @@ public sealed class SessionValidationMiddleware(RequestDelegate next)
         {
             metrics.Increment("session_cache.miss");
             status = await reader.ReadAsync(sid, context.RequestAborted);
-            if (status is { } found) Cache[sid] = (found, now.AddSeconds(5));
+            if (status is { } found) 
+                Cache[sid] = (found, now.AddSeconds(5));
         }
 
-        if (status is null || status.Value.Revoked || status.Value.ExpiresAt <= now || status.Value.IdleExpiresAt <= now)
+        if (status is null 
+            || status.Value.Revoked 
+            || status.Value.ExpiresAt <= now 
+            || status.Value.IdleExpiresAt <= now)
         {
             Cache.TryRemove(sid, out _);
             cacheHook.Evict(sid);
             context.Response.Cookies.Delete("__Host-csraiders_rt");
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             context.Response.ContentType = "application/problem+json";
-            await context.Response.WriteAsJsonAsync(new { error = new { code = "session_superseded", message = "The session is no longer active." } });
+            await context.Response.WriteAsJsonAsync(new
+            {
+                error = new
+                {
+                    code = "session_superseded", 
+                    message = "The session is no longer active."
+                }
+            });
             return;
         }
 

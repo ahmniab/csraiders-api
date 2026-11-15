@@ -20,7 +20,7 @@ public sealed class TokenService(IConfiguration configuration) : ITokenService
         {
             Subject = new ClaimsIdentity([
                 new(JwtRegisteredClaimNames.Sub, userId.ToString()),
-                new("sid", sessionId.ToString()),
+                new(JwtRegisteredClaimNames.Sid, sessionId.ToString()),
                 new("perms", permissionsBitmask.ToString(CultureInfo.InvariantCulture))
             ]),
             IssuedAt = now.UtcDateTime,
@@ -29,7 +29,9 @@ public sealed class TokenService(IConfiguration configuration) : ITokenService
             Issuer = origin,
             Audience = origin
         };
-        return new JwtSecurityTokenHandler().WriteToken(new JwtSecurityTokenHandler().CreateToken(descriptor));
+        return new JwtSecurityTokenHandler()
+            .WriteToken(new JwtSecurityTokenHandler()
+                .CreateToken(descriptor));
     }
     public string CreateRefreshToken(Guid userId, Guid sessionId, DateTimeOffset now)
     {

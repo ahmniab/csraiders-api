@@ -357,7 +357,10 @@ public sealed class RefreshTokenCommandHandlerTests
 
         public string CreateRefreshToken(Guid userId, Guid sessionId, DateTimeOffset now) => "mock_next_refresh_token";
 
-        public bool TryValidateRefreshToken(string token, DateTimeOffset now, out RefreshTokenClaims claims)
+        public bool TryValidateRefreshToken(
+            string token, 
+            DateTimeOffset now, 
+            out RefreshTokenClaims claims)
         {
             if (!ValidationResult)
             {
@@ -365,7 +368,11 @@ public sealed class RefreshTokenCommandHandlerTests
                 return false;
             }
 
-            claims = ConfiguredClaims ?? new RefreshTokenClaims(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+            claims = ConfiguredClaims ?? 
+                     new RefreshTokenClaims(
+                         Guid.NewGuid(), 
+                         Guid.NewGuid(), 
+                         Guid.NewGuid());
             return true;
         }
 
