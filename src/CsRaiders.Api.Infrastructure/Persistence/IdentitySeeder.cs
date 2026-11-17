@@ -1,3 +1,4 @@
+using CsRaiders.Api.Application.Factories;
 using CsRaiders.Api.Domain.Constants;
 using CsRaiders.Api.Domain.Entities;
 using CsRaiders.Api.Domain.Enums;
@@ -20,7 +21,7 @@ public sealed class IdentitySeeder(AppDbContext db)
                 ? preset.Permissions.Where(p => p != PermissionCatalog.SessionMulti)   // student safety belt
                 : preset.Permissions;
 
-            db.Roles.Add(Role.Create(preset.Name, preset.Slug, preset.Scope, permissions, isSystem: true));
+            db.Roles.Add(RoleFactory.Create(preset.Name, preset.Slug, preset.Scope, permissions, isSystem: true));
         }
 
         await db.SaveChangesAsync(ct);

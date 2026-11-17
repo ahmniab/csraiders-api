@@ -24,8 +24,6 @@ internal sealed class UserConfiguration : IEntityTypeConfiguration<User>
 
         b.HasMany(u => u.Roles).WithOne().HasForeignKey(r => r.UserId).OnDelete(DeleteBehavior.Cascade);
         b.HasMany(u => u.PermissionOverrides).WithOne().HasForeignKey(p => p.UserId).OnDelete(DeleteBehavior.Cascade);
-        b.Navigation(u => u.Roles).UsePropertyAccessMode(PropertyAccessMode.Field);
-        b.Navigation(u => u.PermissionOverrides).UsePropertyAccessMode(PropertyAccessMode.Field);
     }
 }
 
@@ -39,12 +37,11 @@ internal sealed class RoleConfiguration : IEntityTypeConfiguration<Role>
         b.Property(r => r.Name).HasMaxLength(100).IsRequired();
         b.Property(r => r.Slug).HasMaxLength(100).IsRequired();
 
-        // permissions text[] backed by the private list field
-        b.Ignore(r => r.Permissions);
-        b.Property<List<string>>("_permissions").HasColumnName("permissions").HasColumnType("text[]").IsRequired();
+        // permissions text[]
+        b.Property(r => r.Permissions).HasColumnName("permissions").HasColumnType("text[]").IsRequired();
 
         b.HasIndex(r => r.Slug).IsUnique().HasDatabaseName("ux_roles_slug");
-        b.HasIndex("_permissions").HasMethod("gin").HasDatabaseName("ix_roles_permissions");
+        b.HasIndex(r => r.Permissions).HasMethod("gin").HasDatabaseName("ix_roles_permissions");
     }
 }
 

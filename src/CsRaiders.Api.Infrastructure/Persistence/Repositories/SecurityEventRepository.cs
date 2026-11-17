@@ -1,3 +1,5 @@
+using CsRaiders.Api.Application.Factories;
+using CsRaiders.Api.Application.Extensions;
 using System.Net;
 using System.Text.Json;
 using CsRaiders.Api.Application.Common.Interfaces.Repositories;
@@ -12,7 +14,7 @@ public sealed class SecurityEventRepository(AppDbContext db) : ISecurityEventRep
     public async Task AddAsync(string eventName, Guid? userId = null, Email? email = null, IPAddress? ip = null,
         JsonDocument? details = null, DateTimeOffset? createdAt = null, CancellationToken ct = default)
     {
-        await db.SecurityEvents.AddAsync(SecurityEvent.Create(eventName, userId, email, ip,
+        await db.SecurityEvents.AddAsync(SecurityEventFactory.Create(eventName, userId, email, ip,
             details ?? JsonDocument.Parse("{}"), createdAt ?? DateTimeOffset.UtcNow), ct);
     }
 
@@ -31,7 +33,7 @@ public sealed class AppSettingRepository(AppDbContext db) : IAppSettingRepositor
     public async Task SetAsync(string key, string value, DateTimeOffset now, CancellationToken ct = default)
     {
         var setting = await db.AppSettings.SingleOrDefaultAsync(x => x.Key == key, ct);
-        if (setting is null) await db.AppSettings.AddAsync(AppSetting.Create(key, value, now), ct);
+        if (setting is null) await db.AppSettings.AddAsync(AppSettingFactory.Create(key, value, now), ct);
         else setting.SetValue(value, now);
     }
 }
