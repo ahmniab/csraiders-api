@@ -38,7 +38,13 @@ public sealed class GlobalExceptionMiddleware(
             DomainException domain => domain.Code,
             _ => "internal_error"
         };
-        var result = JsonSerializer.Serialize(new { error = new { code, message = ex.Message } });
+        var result = JsonSerializer.Serialize(new
+        {
+            error = new
+            {
+                code, message = ex.Message
+            }
+        });
         return context.Response.WriteAsync(result);
     }
 }

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using System.Text.Json;
 using CsRaiders.Api.Application.Common.Interfaces.Security;
 using CsRaiders.Api.Domain.Constants;
 using Microsoft.Extensions.Configuration;
@@ -11,7 +12,7 @@ namespace CsRaiders.Api.Infrastructure.Security;
 
 public sealed class TokenService(IConfiguration configuration) : ITokenService
 {
-    public string CreateAccessToken(Guid userId, Guid sessionId, ulong permissionsBitmask, DateTimeOffset now)
+    public string CreateAccessToken(Guid userId, Guid sessionId,  IReadOnlySet<string> effectivePerms, DateTimeOffset now)
     {
         var origin = configuration["Site:Origin"] ?? string.Empty;
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(configuration["Auth:JwtSigningKey"] ?? string.Empty));
@@ -21,7 +22,7 @@ public sealed class TokenService(IConfiguration configuration) : ITokenService
             Subject = new ClaimsIdentity([
                 new(JwtRegisteredClaimNames.Sub, userId.ToString()),
                 new(JwtRegisteredClaimNames.Sid, sessionId.ToString()),
-                new("perms", permissionsBitmask.ToString(CultureInfo.InvariantCulture))
+                new("permissions", JsonSerializer.Serialize(effectivePerms))
             ]),
             IssuedAt = now.UtcDateTime,
             Expires = now.Add(AuthRules.AccessTokenLifetime).UtcDateTime,

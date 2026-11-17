@@ -61,9 +61,14 @@ public sealed class Session : Entity
     /// </summary>
     public RefreshOutcome TryRotate(byte[] presentedHash, byte[] newHash, string deviceFp, DateTimeOffset now)
     {
-        if (RevokedAt is not null) return RefreshOutcome.Inactive;
-        if (now >= ExpiresAt || now >= IdleExpiresAt) return RefreshOutcome.Inactive;
-        if (!string.Equals(DeviceFp, deviceFp, StringComparison.Ordinal)) return RefreshOutcome.DeviceMismatch;
+        if (RevokedAt is not null) 
+            return RefreshOutcome.Inactive;
+        
+        if (now >= ExpiresAt || now >= IdleExpiresAt) 
+            return RefreshOutcome.Inactive;
+        
+        if (!string.Equals(DeviceFp, deviceFp, StringComparison.Ordinal)) 
+            return RefreshOutcome.DeviceMismatch;
 
         if (PreviousRefreshTokenHash is not null && Same(PreviousRefreshTokenHash, presentedHash))
         {

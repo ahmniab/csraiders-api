@@ -12,12 +12,7 @@ public sealed class SessionRepository(AppDbContext db) : ISessionRepository, ISe
     public async Task<SessionStatus?> ReadAsync(Guid sessionId, CancellationToken ct = default) =>
         await db.Sessions.AsNoTracking()
             .Where(s => s.Id == sessionId)
-            .Select(s => new SessionStatus(
-                s.Id, 
-                s.UserId, 
-                s.ExpiresAt, 
-                s.IdleExpiresAt, 
-                s.RevokedAt != null))
+            .Select(s =>  SessionStatus.FromSession(s))
             .SingleOrDefaultAsync(ct);
     public async Task<Session?> FindByIdAsync(
         Guid sessionId, 
