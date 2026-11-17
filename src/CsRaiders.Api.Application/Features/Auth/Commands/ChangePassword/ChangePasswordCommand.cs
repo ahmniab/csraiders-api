@@ -1,3 +1,4 @@
+using CsRaiders.Api.Application.Extensions;
 using CsRaiders.Api.Application.Common.Interfaces.Repositories;
 using CsRaiders.Api.Application.Common.Interfaces.Security;
 using CsRaiders.Api.Application.Common.Abstractions;
@@ -41,7 +42,7 @@ public sealed class ChangePasswordCommandHandler(
     {
         var user = await users.FindByIdAsync(request.UserId, track: true, ct);
         
-        if (user is null || !user.CanAuthenticate) 
+        if (user is null || !user.CanAuthenticate()) 
             return ChangePasswordResult.Invalid();
         
         var verification = 

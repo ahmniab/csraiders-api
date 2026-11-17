@@ -1,3 +1,5 @@
+using CsRaiders.Api.Application.Factories;
+using CsRaiders.Api.Application.Extensions;
 using CsRaiders.Api.Application.Common.Abstractions;
 using CsRaiders.Api.Application.Common.Interfaces.Repositories;
 using CsRaiders.Api.Application.Common.Interfaces.Security;
@@ -38,7 +40,7 @@ public static class RbacCommandSupport
         Guid userId, IUserRepository users, IRoleRepository roles, CancellationToken ct)
     {
         var user = await users.FindByIdWithPermissionsAsync(userId, ct: ct);
-        if (user is null || !user.CanAuthenticate) return null;
+        if (user is null || !user.CanAuthenticate()) return null;
         var assigned = await roles.FindByIdsAsync(user.Roles.Select(x => x.RoleId), ct);
         return EffectivePermissions.Resolve(assigned, user.PermissionOverrides);
     }
@@ -102,7 +104,7 @@ public sealed class UpdateRolePermissionsCommandHandler(
 
         if (sensitiveRemoved || multiRemoved)
         {
-            var oldRole = Role.Create(role.Name, role.Slug, role.Scope, oldPermissions, role.IsSystem);
+            var oldRole = RoleFactory.Create(role.Name, role.Slug, role.Scope, oldPermissions, role.IsSystem);
             var now = clock.UtcNow;
             foreach (var userId in await users.FindIdsByRoleIdAsync(role.Id, ct))
             {
@@ -146,7 +148,7 @@ public sealed class CreateRoleCommandHandler(
         var grantor = await RbacCommandSupport.EffectiveAsync(request.GrantorUserId, users, roles, ct);
         if (!RbacCommandSupport.CanGrant(grantor, request.Permissions)) return RoleChangeResult.Denied();
         if (await roles.FindBySlugAsync(request.Slug, ct: ct) is not null) return new(false, Conflict: true);
-        var role = Role.Create(request.Name, request.Slug, request.Scope, request.Permissions);
+        var role = RoleFactory.Create(request.Name, request.Slug, request.Scope, request.Permissions);
         await roles.AddAsync(role, ct);
         invalidation.Invalidate();
         await audit.WriteAsync("role_created", request.GrantorUserId, details: new { roleId = role.Id, slug = role.Slug }, ct: ct);
@@ -184,7 +186,7 @@ public sealed class UpdateRoleCommandHandler(
 
         if (sensitiveRemoved || multiRemoved)
         {
-            var oldRole = Role.Create(role.Name, role.Slug, role.Scope, oldPermissions, role.IsSystem);
+            var oldRole = RoleFactory.Create(role.Name, role.Slug, role.Scope, oldPermissions, role.IsSystem);
             var now = clock.UtcNow;
             foreach (var userId in await users.FindIdsByRoleIdAsync(role.Id, ct))
             {

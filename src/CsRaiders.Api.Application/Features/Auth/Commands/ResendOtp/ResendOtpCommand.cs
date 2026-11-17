@@ -1,3 +1,4 @@
+using CsRaiders.Api.Application.Extensions;
 using CsRaiders.Api.Application.Common.EmailTemplates.Models;
 using CsRaiders.Api.Application.Common.EmailTemplates.Templates;
 using CsRaiders.Api.Application.Common.Interfaces.Repositories;

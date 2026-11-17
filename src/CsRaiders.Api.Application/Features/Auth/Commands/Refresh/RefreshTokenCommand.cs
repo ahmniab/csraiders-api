@@ -103,7 +103,7 @@ public sealed class RefreshTokenCommandHandler(
             return perms;
     
         var userWithPerms = await users.FindByIdWithPermissionsAsync(userId, ct: ct);
-        if (userWithPerms is null || !userWithPerms.CanAuthenticate)
+        if (userWithPerms is null || !userWithPerms.CanAuthenticate())
         {
             return null;
         }

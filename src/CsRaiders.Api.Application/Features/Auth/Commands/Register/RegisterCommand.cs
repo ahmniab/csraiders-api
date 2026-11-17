@@ -1,3 +1,5 @@
+using CsRaiders.Api.Application.Factories;
+using CsRaiders.Api.Application.Extensions;
 using CsRaiders.Api.Application.Common.EmailTemplates.Models;
 using CsRaiders.Api.Application.Common.EmailTemplates.Templates;
 using CsRaiders.Api.Application.Common.Interfaces.Repositories;
@@ -68,7 +70,7 @@ public sealed class RegisterCommandHandler(
         var password = await passwords.HashAsync(request.Password, ct);
         if (password.Outcome == HashOutcome.Unavailable) return RegisterResult.Capacity();
 
-        var registration = PendingRegistration.Start(email, displayName, password.Hash!, otpHash, null, now);
+        var registration = PendingRegistrationFactory.Start(email, displayName, password.Hash!, otpHash, null, now);
         await pendingRegistrations.AddAsync(registration, ct);
         return EnqueueRegistration(email, otp, displayName) ? RegisterResult.Generic() : RegisterResult.Capacity();
     }

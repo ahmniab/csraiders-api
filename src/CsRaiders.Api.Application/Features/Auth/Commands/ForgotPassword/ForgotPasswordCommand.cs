@@ -1,3 +1,5 @@
+using CsRaiders.Api.Application.Factories;
+using CsRaiders.Api.Application.Extensions;
 using System.Net;
 using System.Security.Cryptography;
 using CsRaiders.Api.Application.Common.EmailTemplates.Models;
@@ -42,14 +44,14 @@ public sealed class ForgotPasswordCommandHandler(
         var email = Email.Create(request.Email);
         var now = clock.UtcNow;
         var user = await users.FindByEmailAsync(email, ct: ct);
-        if (user is null || !user.CanAuthenticate) return new();
+        if (user is null || !user.CanAuthenticate()) return new();
         if (await resetTokens.CountIssuedSinceAsync(user.Id, now - AuthRules.OtpSendWindow, ct) >= AuthRules.OtpMaxSendsPerHour)
             return new();
 
         await resetTokens.InvalidateAllByUserIdAsync(user.Id, now, ct);
         var rawToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
             .Replace('+', '-').Replace('/', '_').TrimEnd('=');
-        var token = PasswordResetToken.Issue(user.Id, SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(rawToken)), request.Ip, now);
+        var token = PasswordResetTokenFactory.Issue(user.Id, SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(rawToken)), request.Ip, now);
         await resetTokens.AddAsync(token, ct);
         await audit.WriteAsync("password_reset_issued", user.Id, email, request.Ip, ct: ct);
 
@@ -107,7 +109,7 @@ public sealed class ResetPasswordCommandHandler(
         var user = 
             await users.FindByIdAsync(token.UserId, track: true, ct);
         
-        if (user is null || !user.CanAuthenticate || !token.TryConsume(now)) 
+        if (user is null || !user.CanAuthenticate() || !token.TryConsume(now)) 
             return ResetPasswordResult.Invalid();
         
         var hash = await passwords.HashAsync(request.Password, ct);

@@ -67,7 +67,7 @@ public sealed class LoginCommandHandler(
         var verification = await passwords.VerifyAsync(request.Password, user?.PasswordHash, ct);
         if (verification.Outcome == HashOutcome.Unavailable) return LoginResult.Capacity();
 
-        if (user is null || !verification.IsValid || !user.CanAuthenticate)
+        if (user is null || !verification.IsValid || !user.CanAuthenticate())
         {
             var outcome = await gates.RegisterFailureAsync(email, request.Ip, user?.Id, now, ct);
             if (outcome == LoginFailureOutcome.LockedOut)

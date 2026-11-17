@@ -1,3 +1,5 @@
+using CsRaiders.Api.Application.Factories;
+using CsRaiders.Api.Application.Extensions;
 using CsRaiders.Api.Application.Common.Interfaces.Repositories;
 using CsRaiders.Api.Application.Common.Interfaces.Security;
 using CsRaiders.Api.Application.Common.Abstractions;
@@ -46,7 +48,7 @@ public sealed class VerifyOtpCommandHandler(
             return VerifyOtpResult.Failure();
         }
 
-        var user = User.RegisterVerified(email, pending.Name, pending.PasswordHash, clock.UtcNow);
+        var user = UserFactory.RegisterVerified(email, pending.Name, pending.PasswordHash, clock.UtcNow);
         var student = await roles.FindBySlugAsync("student", ct: ct)
             ?? throw new InvalidOperationException("The system student role is not seeded.");
         user.AssignRole(student.Id, null, clock.UtcNow);
