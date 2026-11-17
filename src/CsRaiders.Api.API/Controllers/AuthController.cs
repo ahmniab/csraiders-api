@@ -29,9 +29,15 @@ public sealed class AuthController(IMediator mediator, ISessionCookieWriter cook
     {
         var result = await mediator.Send(new RegisterCommand(request.Email, request.Password, request.Name), ct);
         return result.AlreadyRegistered
-            ? ProblemResult(409, "already_registered", "An account is already registered for this email address.")
+            ? ProblemResult(
+                409, 
+                "already_registered", 
+                "An account is already registered for this email address.")
             : result.CapacityExhausted
-            ? ProblemResult(503, "capacity_exhausted", "The service is temporarily unable to process this request.")
+            ? ProblemResult(
+                503, 
+                "capacity_exhausted", 
+                "The service is temporarily unable to process this request.")
             : AcceptedResult();
     }
 
@@ -42,7 +48,10 @@ public sealed class AuthController(IMediator mediator, ISessionCookieWriter cook
         var result = await mediator.Send(new VerifyOtpCommand(request.Email, request.Code), ct);
         return result.Verified
             ? Ok(new { message = "Email verified." })
-            : ProblemResult(400, "invalid_or_expired_otp", "The verification code is invalid or expired.");
+            : ProblemResult(
+                400, 
+                "invalid_or_expired_otp", 
+                "The verification code is invalid or expired.");
     }
 
     [HttpPost("resend-otp")]
@@ -51,7 +60,10 @@ public sealed class AuthController(IMediator mediator, ISessionCookieWriter cook
     {
         var result = await mediator.Send(new ResendOtpCommand(request.Email), ct);
         return result.CapacityExhausted
-            ? ProblemResult(503, "capacity_exhausted", "The service is temporarily unable to process this request.")
+            ? ProblemResult(
+                503, 
+                "capacity_exhausted", 
+                "The service is temporarily unable to process this request.")
             : AcceptedResult();
     }
 
@@ -64,20 +76,34 @@ public sealed class AuthController(IMediator mediator, ISessionCookieWriter cook
             cookies.GetOrCreateDeviceFingerprint(Request.Cookies[SessionCookieWriter.DeviceCookie]), Request.Headers.UserAgent.ToString()), ct);
 
         if (result.CapacityExhausted)
-            return ProblemResult(503, "capacity_exhausted", "The service is temporarily unable to process this request.");
+            return ProblemResult(
+                503, 
+                "capacity_exhausted", 
+                "The service is temporarily unable to process this request.");
         if (!result.Succeeded)
         {
             if (result.RetryAfter is { } retry && retry > TimeSpan.Zero)
-                Response.Headers.RetryAfter = Math.Max(1, (int)Math.Ceiling(retry.TotalSeconds)).ToString();
-            return ProblemResult(401, "invalid_credentials", "The email or password is incorrect.");
+                Response.Headers.RetryAfter 
+                    = Math.Max(1, (int)Math.Ceiling(retry.TotalSeconds))
+                        .ToString();
+            return ProblemResult(
+                401, 
+                "invalid_credentials", 
+                "The email or password is incorrect.");
         }
 
         foreach (var cookie in cookies.CreateLoginCookies(result.RefreshToken!, result.DeviceFingerprint!,
                      !Request.Cookies.ContainsKey(SessionCookieWriter.DeviceCookie)))
-            Response.Cookies.Append(cookie.Name, cookie.Value, new CookieOptions
-            {
-                Secure = true, HttpOnly = true, SameSite = SameSiteMode.Strict,
-                Path = "/", MaxAge = cookie.MaxAge, IsEssential = true
+            Response.Cookies.Append(
+                cookie.Name, 
+                cookie.Value, 
+                new CookieOptions {
+                    Secure = true, 
+                    HttpOnly = true, 
+                    SameSite = SameSiteMode.Strict,
+                    Path = "/", 
+                    MaxAge = cookie.MaxAge, 
+                    IsEssential = true
             });
         return Ok(new
         {

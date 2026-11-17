@@ -18,7 +18,8 @@ public sealed class MeSessionsController(IMediator mediator) : ControllerBase
     {
         var userId = UserId();
         var currentSessionId = SessionId();
-        var sessions = await mediator.Send(new GetSessionSummariesQuery(userId), ct);
+        var sessions 
+            = await mediator.Send(new GetSessionSummariesQuery(userId), ct);
         return Ok(new
         {
             currentSessionId,
