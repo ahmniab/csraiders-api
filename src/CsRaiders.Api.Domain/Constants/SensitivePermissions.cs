@@ -2,10 +2,11 @@ namespace CsRaiders.Api.Domain.Constants;
 
 public static class SensitivePermissions
 {
-    public static IReadOnlySet<string> All { get; } = new HashSet<string>(StringComparer.Ordinal)
+    public static IReadOnlySet<string> All { get; } 
+        = new HashSet<string>(StringComparer.Ordinal)
     {
         PermissionCatalog.RoleManage,
-        PermissionCatalog.PaymentRefund,
+        PermissionCatalog.PaymentManage,
         PermissionCatalog.UserWrite,
         PermissionCatalog.SessionRevoke
     };

@@ -4,17 +4,11 @@ public static class PermissionCatalog
 {
     public const string CourseRead = "course:read";
     public const string CourseWrite = "course:write";
-    public const string CoursePurge = "course:purge";   // [Proposal] hard delete, Super Admin only
-    public const string LessonWrite = "lesson:write";
-    public const string AssetWrite = "asset:write";
-    public const string QuestionWrite = "question:write";
-    public const string QuizWrite = "quiz:write";
     public const string UserRead = "user:read";
     public const string UserWrite = "user:write";
     public const string RoleManage = "role:manage";
     public const string PaymentRead = "payment:read";
-    public const string PaymentVerify = "payment:verify";
-    public const string PaymentRefund = "payment:refund";
+    public const string PaymentManage = "payment:manage";
     public const string NotificationSend = "notification:send";
     public const string AnalyticsRead = "analytics:read";
     public const string AuditRead = "audit:read";
@@ -25,13 +19,10 @@ public static class PermissionCatalog
 
     public static IReadOnlyList<string> All { get; } =
     [
-        CourseRead, CourseWrite, CoursePurge, 
-        LessonWrite, 
-        AssetWrite, 
-        QuestionWrite, QuizWrite,
+        CourseRead, CourseWrite, 
         UserRead, UserWrite, 
         RoleManage, 
-        PaymentRead, PaymentVerify, PaymentRefund,
+        PaymentRead, PaymentManage,
         NotificationSend, 
         AnalyticsRead, AuditRead, 
         SettingsRead, SettingsWrite,
@@ -39,8 +30,11 @@ public static class PermissionCatalog
     ];
 
     /// <summary>[Proposal] The only permissions a Student-scope role may ever hold (M0 T4.3).</summary>
-    public static IReadOnlyList<string> StudentAllowed { get; } = [CourseRead, SessionMulti];
+    public static IReadOnlyList<string> StudentAllowed { get; } 
+        = [CourseRead, SessionMulti];
 
-    private static readonly HashSet<string> Known = new(All, StringComparer.Ordinal);
-    public static bool IsKnown(string permission) => Known.Contains(permission);
+    private static readonly HashSet<string> Known 
+        = new(All, StringComparer.Ordinal);
+    public static bool IsKnown(string permission)
+        => Known.Contains(permission);
 }
