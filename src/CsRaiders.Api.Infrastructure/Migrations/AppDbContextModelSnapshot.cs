@@ -306,6 +306,11 @@ namespace CsRaiders.Api.Infrastructure.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
+                    b.PrimitiveCollection<List<string>>("Permissions")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("permissions");
+
                     b.Property<string>("Scope")
                         .IsRequired()
                         .HasColumnType("text")
@@ -323,22 +328,17 @@ namespace CsRaiders.Api.Infrastructure.Migrations
                         .HasColumnType("xid")
                         .HasColumnName("xmin");
 
-                    b.PrimitiveCollection<List<string>>("_permissions")
-                        .IsRequired()
-                        .HasColumnType("text[]")
-                        .HasColumnName("permissions");
-
                     b.HasKey("Id")
                         .HasName("pk_roles");
+
+                    b.HasIndex("Permissions")
+                        .HasDatabaseName("ix_roles_permissions");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Permissions"), "gin");
 
                     b.HasIndex("Slug")
                         .IsUnique()
                         .HasDatabaseName("ux_roles_slug");
-
-                    b.HasIndex("_permissions")
-                        .HasDatabaseName("ix_roles_permissions");
-
-                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("_permissions"), "gin");
 
                     b.ToTable("roles", null, t =>
                         {

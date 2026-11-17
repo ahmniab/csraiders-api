@@ -15,8 +15,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CsRaiders.Api.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20261109133710_Auth_Initial")]
-    partial class Auth_Initial
+    [Migration("20261117123355_InitialAuth")]
+    partial class InitialAuth
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -49,6 +49,66 @@ namespace CsRaiders.Api.Infrastructure.Migrations
                         .HasName("pk_app_settings");
 
                     b.ToTable("app_settings", (string)null);
+                });
+
+            modelBuilder.Entity("CsRaiders.Api.Domain.Entities.DeadLetterEmail", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt_count");
+
+                    b.Property<string>("CorrelationId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("correlation_id");
+
+                    b.Property<string>("ErrorReason")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("error_reason");
+
+                    b.Property<DateTimeOffset>("FailedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("failed_at");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("purpose");
+
+                    b.Property<string>("Recipient")
+                        .IsRequired()
+                        .HasColumnType("citext")
+                        .HasColumnName("recipient");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("subject");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("pk_dead_letter_emails");
+
+                    b.HasIndex("FailedAt")
+                        .IsDescending()
+                        .HasDatabaseName("ix_dead_letter_emails_failed_at");
+
+                    b.HasIndex("Recipient")
+                        .HasDatabaseName("ix_dead_letter_emails_recipient");
+
+                    b.ToTable("dead_letter_emails", (string)null);
                 });
 
             modelBuilder.Entity("CsRaiders.Api.Domain.Entities.LoginAttempt", b =>
@@ -249,6 +309,11 @@ namespace CsRaiders.Api.Infrastructure.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
+                    b.PrimitiveCollection<List<string>>("Permissions")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("permissions");
+
                     b.Property<string>("Scope")
                         .IsRequired()
                         .HasColumnType("text")
@@ -266,22 +331,17 @@ namespace CsRaiders.Api.Infrastructure.Migrations
                         .HasColumnType("xid")
                         .HasColumnName("xmin");
 
-                    b.PrimitiveCollection<List<string>>("_permissions")
-                        .IsRequired()
-                        .HasColumnType("text[]")
-                        .HasColumnName("permissions");
-
                     b.HasKey("Id")
                         .HasName("pk_roles");
+
+                    b.HasIndex("Permissions")
+                        .HasDatabaseName("ix_roles_permissions");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Permissions"), "gin");
 
                     b.HasIndex("Slug")
                         .IsUnique()
                         .HasDatabaseName("ux_roles_slug");
-
-                    b.HasIndex("_permissions")
-                        .HasDatabaseName("ix_roles_permissions");
-
-                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("_permissions"), "gin");
 
                     b.ToTable("roles", null, t =>
                         {
