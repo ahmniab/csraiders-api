@@ -1,8 +1,11 @@
 using CsRaiders.Api.Application.Common.Abstractions;
 using CsRaiders.Api.Application.Common.Interfaces.Repositories;
 using CsRaiders.Api.Application.Common.Interfaces.Security;
+using CsRaiders.Api.Application.Extensions;
+using CsRaiders.Api.Domain.Entities;
 using CsRaiders.Api.Domain.Enums;
 using Mediator;
+using Microsoft.Extensions.Caching.Distributed;
 
 namespace CsRaiders.Api.Application.Features.Sessions.Commands;
 
@@ -15,7 +18,7 @@ public sealed record RevokeAllSessionsResult(int RevokedCount);
 public sealed class RevokeSessionCommandHandler(
     ISessionRepository sessions,
     IPlatformClock clock,
-    ISessionCacheHook cache,
+    IDistributedCache cache,
     ISecurityAuditWriter audit) : IRequestHandler<RevokeSessionCommand, RevokeSessionResult>
 {
     public async ValueTask<RevokeSessionResult> Handle(RevokeSessionCommand request, CancellationToken ct)
@@ -27,8 +30,9 @@ public sealed class RevokeSessionCommandHandler(
 
         session.Revoke(SessionRevokeReason.Logout, now);
         sessions.Update(session);
-        cache.Evict(session.Id);
-        await audit.WriteAsync("session_revoked", request.UserId, details: new { reason = "logout" }, ct: ct);
+        await cache.SetObjectAsync($"sid:{session.Id}", session);
+        await audit.WriteAsync("session_revoked", 
+            request.UserId, details: new { reason = "logout" }, ct: ct);
         return new(true);
     }
 }
@@ -36,7 +40,7 @@ public sealed class RevokeSessionCommandHandler(
 public sealed class LogoutCommandHandler(
     ISessionRepository sessions,
     IPlatformClock clock,
-    ISessionCacheHook cache,
+    IDistributedCache cache,
     ISecurityAuditWriter audit) : IRequestHandler<LogoutCommand, RevokeSessionResult>
 {
     public async ValueTask<RevokeSessionResult> Handle(LogoutCommand request, CancellationToken ct)
@@ -48,7 +52,7 @@ public sealed class LogoutCommandHandler(
 
         session.Revoke(SessionRevokeReason.Logout, now);
         sessions.Update(session);
-        cache.Evict(session.Id);
+        await cache.SetObjectAsync($"sid:{session.Id}", session);
         await audit.WriteAsync("session_revoked", request.UserId, details: new { reason = "logout" }, ct: ct);
         return new(true);
     }
@@ -57,7 +61,7 @@ public sealed class LogoutCommandHandler(
 public sealed class RevokeAllOtherSessionsCommandHandler(
     ISessionRepository sessions,
     IPlatformClock clock,
-    ISessionCacheHook cache,
+    IDistributedCache cache,
     ISecurityAuditWriter audit) : IRequestHandler<RevokeAllOtherSessionsCommand, RevokeAllSessionsResult>
 {
     public async ValueTask<RevokeAllSessionsResult> Handle(RevokeAllOtherSessionsCommand request, CancellationToken ct)
@@ -69,10 +73,18 @@ public sealed class RevokeAllOtherSessionsCommandHandler(
         if (otherSessions.Length == 0) return new(0);
 
         var count = await sessions.BulkRevokeByUserIdAsync(
-            request.UserId, SessionRevokeReason.Logout, request.CurrentSessionId, now, ct);
-        foreach (var session in otherSessions) cache.Evict(session.Id);
+            request.UserId, 
+            SessionRevokeReason.Logout, 
+            request.CurrentSessionId, 
+            now, 
+            ct);
+        foreach (var session in otherSessions) 
+            await cache.SetObjectAsync($"sid:{session.Id}", session);
         await audit.WriteAsync("session_revoked", request.UserId,
-            details: new { reason = "logout", count }, ct: ct);
+            details: new
+            {
+                reason = "logout", count
+            }, ct: ct);
         return new(count);
     }
 }

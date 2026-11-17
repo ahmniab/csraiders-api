@@ -3,6 +3,7 @@ using CsRaiders.Api.Application.Common.Interfaces;
 using CsRaiders.Api.Application.Common.Interfaces.Repositories;
 using CsRaiders.Api.Application.Common.Interfaces.Security;
 using CsRaiders.Api.Domain.Enums;
+using Microsoft.Extensions.Caching.Distributed;
 
 namespace CsRaiders.Api.Infrastructure.Services;
 
@@ -14,8 +15,8 @@ namespace CsRaiders.Api.Infrastructure.Services;
 public sealed class SessionReconciliationService(
     IUserRepository users,
     ISessionRepository sessions,
-    ISessionCacheHook cache,
-    IPostCommitActions postCommit,
+    IDistributedCache cache,
+    // IPostCommitActions postCommit,
     IPlatformClock clock) : ISessionReconciliationService
 {
     public async Task ReconcileAfterMultiSessionLossAsync(Guid userId, CancellationToken ct = default)
@@ -30,7 +31,8 @@ public sealed class SessionReconciliationService(
         foreach (var session in active.Where(x => x.Id != survivor.Id))
         {
             var sessionId = session.Id;
-            postCommit.Enqueue(() => cache.Evict(sessionId));
+            await cache.RefreshAsync($"sid:{sessionId}");
+            // postCommit.Enqueue(() => cache.Evict(sessionId));
         }
 
         // The database revocation is applied before the sole survivor is marked,

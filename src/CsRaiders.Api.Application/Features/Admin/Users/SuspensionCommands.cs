@@ -4,6 +4,7 @@ using CsRaiders.Api.Application.Common.Interfaces.Repositories;
 using CsRaiders.Api.Application.Common.Interfaces.Security;
 using CsRaiders.Api.Domain.Enums;
 using Mediator;
+using Microsoft.Extensions.Caching.Distributed;
 
 namespace CsRaiders.Api.Application.Features.Admin.Users;
 
@@ -18,9 +19,8 @@ public sealed record SuspensionResult(bool Succeeded, bool NotFound = false, boo
 public sealed class SuspendUserCommandHandler(
     IUserRepository users,
     ISessionRepository sessions,
-    ISessionCacheHook cache,
+    IDistributedCache cache,
     IPlatformClock clock,
-    IPostCommitActions postCommit,
     ISecurityAuditWriter audit) : IRequestHandler<SuspendUserCommand, SuspensionResult>
 {
     public async ValueTask<SuspensionResult> Handle(SuspendUserCommand request, CancellationToken ct)
@@ -37,7 +37,7 @@ public sealed class SuspendUserCommandHandler(
         foreach (var session in active)
         {
             var id = session.Id;
-            postCommit.Enqueue(() => cache.Evict(id));
+            await cache.RemoveAsync($"sid:{id}");
         }
         await audit.WriteAsync("account_suspended", user.Id, user.Email, details: new { reason = "account_disabled" }, ct: ct);
         return new(true);

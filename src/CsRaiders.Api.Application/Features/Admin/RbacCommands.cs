@@ -6,6 +6,7 @@ using CsRaiders.Api.Domain.Entities;
 using CsRaiders.Api.Domain.Enums;
 using CsRaiders.Api.Domain.Policies;
 using Mediator;
+using Microsoft.Extensions.Caching.Distributed;
 
 namespace CsRaiders.Api.Application.Features.Admin;
 
@@ -62,7 +63,7 @@ public static class RbacCommandSupport
     public static async Task RevokeUserSessionsAsync(
         Guid userId,
         ISessionRepository sessions,
-        ISessionCacheHook sessionCache,
+        IDistributedCache sessionCache,
         DateTimeOffset now,
         CancellationToken ct)
     {
@@ -70,7 +71,7 @@ public static class RbacCommandSupport
         await sessions.RevokeAllByUserIdAsync(userId, SessionRevokeReason.AdminRevoked, now, ct);
         foreach (var session in active)
         {
-            sessionCache.Evict(session.Id);
+            await sessionCache.RemoveAsync($"sid:{session.Id}");
         }
     }
 }
@@ -79,7 +80,7 @@ public sealed class UpdateRolePermissionsCommandHandler(
     IUserRepository users,
     IRoleRepository roles,
     ISessionRepository sessions,
-    ISessionCacheHook sessionCache,
+    IDistributedCache sessionCache,
     ISessionReconciliationService reconciliation,
     IRbacInvalidationToken invalidation,
     IPlatformClock clock,
@@ -157,7 +158,7 @@ public sealed class UpdateRoleCommandHandler(
     IUserRepository users,
     IRoleRepository roles,
     ISessionRepository sessions,
-    ISessionCacheHook sessionCache,
+    IDistributedCache sessionCache,
     ISessionReconciliationService reconciliation,
     IRbacInvalidationToken invalidation,
     IPlatformClock clock,
@@ -219,7 +220,7 @@ public sealed class DeleteRoleCommandHandler(
     IUserRepository users,
     IRoleRepository roles,
     ISessionRepository sessions,
-    ISessionCacheHook sessionCache,
+    IDistributedCache sessionCache,
     IRbacInvalidationToken invalidation,
     IPlatformClock clock,
     ISecurityAuditWriter audit) : IRequestHandler<DeleteRoleCommand, AdminChangeResult>
@@ -262,7 +263,7 @@ public sealed class SetUserPermissionOverrideCommandHandler(
     IUserRepository users,
     IRoleRepository roles,
     ISessionRepository sessions,
-    ISessionCacheHook sessionCache,
+    IDistributedCache sessionCache,
     ISessionReconciliationService reconciliation,
     IRbacInvalidationToken invalidation,
     IPlatformClock clock,
@@ -307,7 +308,7 @@ public sealed class ElevateUserRolesCommandHandler(
     IUserRepository users,
     IRoleRepository roles,
     ISessionRepository sessions,
-    ISessionCacheHook sessionCache,
+    IDistributedCache sessionCache,
     ISessionReconciliationService reconciliation,
     IRbacInvalidationToken invalidation,
     IPlatformClock clock,

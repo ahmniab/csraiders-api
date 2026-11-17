@@ -5,6 +5,7 @@ using CsRaiders.Api.Domain.Constants;
 using CsRaiders.Api.Domain.Enums;
 using FluentValidation;
 using Mediator;
+using Microsoft.Extensions.Caching.Distributed;
 
 namespace CsRaiders.Api.Application.Features.Auth.Commands.ChangePassword;
 
@@ -32,27 +33,50 @@ public sealed class ChangePasswordCommandHandler(
     IUserRepository users,
     IPasswordHasher passwords,
     ISessionRepository sessions,
-    ISessionCacheHook cache,
+    IDistributedCache cache,
     ISecurityAuditWriter audit,
     IPlatformClock clock) : IRequestHandler<ChangePasswordCommand, ChangePasswordResult>
 {
     public async ValueTask<ChangePasswordResult> Handle(ChangePasswordCommand request, CancellationToken ct)
     {
         var user = await users.FindByIdAsync(request.UserId, track: true, ct);
-        if (user is null || !user.CanAuthenticate) return ChangePasswordResult.Invalid();
-        var verification = await passwords.VerifyAsync(request.CurrentPassword, user.PasswordHash, ct);
-        if (verification.Outcome == HashOutcome.Unavailable) return ChangePasswordResult.Capacity();
-        if (!verification.IsValid) return ChangePasswordResult.Invalid();
+        
+        if (user is null || !user.CanAuthenticate) 
+            return ChangePasswordResult.Invalid();
+        
+        var verification = 
+            await passwords.VerifyAsync(request.CurrentPassword, user.PasswordHash, ct);
+        
+        if (verification.Outcome == HashOutcome.Unavailable) 
+            return ChangePasswordResult.Capacity();
+        
+        if (!verification.IsValid) 
+            return ChangePasswordResult.Invalid();
+        
         var hash = await passwords.HashAsync(request.NewPassword, ct);
-        if (hash.Outcome == HashOutcome.Unavailable) return ChangePasswordResult.Capacity();
+        
+        if (hash.Outcome == HashOutcome.Unavailable) 
+            return ChangePasswordResult.Capacity();
 
         var now = clock.UtcNow;
         user.ChangePassword(hash.Hash!, now);
         users.Update(user);
-        var active = await sessions.FindActiveByUserIdAsync(user.Id, now, track: false, ct);
-        await sessions.BulkRevokeByUserIdAsync(user.Id, SessionRevokeReason.PasswordChanged, request.CurrentSessionId, now, ct);
-        foreach (var session in active.Where(s => s.Id != request.CurrentSessionId)) cache.Evict(session.Id);
+        
+        var active = 
+            await sessions.FindActiveByUserIdAsync(user.Id, now, track: false, ct);
+        
+        await sessions.BulkRevokeByUserIdAsync(
+            user.Id, 
+            SessionRevokeReason.PasswordChanged, 
+            request.CurrentSessionId, 
+            now, 
+            ct);
+        
+        foreach (var session in active.Where(s => s.Id != request.CurrentSessionId)) 
+            await cache.RemoveAsync($"sid:{session.Id}");
+        
         await audit.WriteAsync("password_changed", user.Id, user.Email, ct: ct);
+        
         return new(true);
     }
 }

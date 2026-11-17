@@ -22,6 +22,7 @@ public static class InfrastructureServiceExtensions
         var connectionString = configuration.GetConnectionString("Default")
             ?? throw new InvalidOperationException("ConnectionStrings:Default is not configured.");
 
+        services.AddDistributedMemoryCache();
         // One non-pooled factory registration supplies both scoped AppDbContext instances
         // and IDbContextFactory<AppDbContext>. Avoid registering AddDbContext and a
         // pooled factory together: the pool is singleton but its options become scoped.
@@ -45,7 +46,6 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IAppSettingRepository, AppSettingRepository>();
         services.AddScoped<IDeadLetterEmailRepository, DeadLetterEmailRepository>();
         services.AddScoped<ISessionStatusReader, SessionRepository>();
-        services.AddSingleton<ISessionCacheHook, MemorySessionCacheHook>();
         services.AddScoped<ISecurityAuditWriter, SecurityAuditWriter>();
         services.AddSingleton<IEmailQueue, ChannelEmailQueue>();
         services.AddSingleton<IEmailTemplateService, EmailTemplateService>();
@@ -83,9 +83,9 @@ public static class InfrastructureServiceExtensions
         }
         services.AddHostedService<EmailSenderWorker>();
         services.AddHostedService<AuthCleanupWorker>();
-        services.AddScoped<IPasswordHasher, CsRaiders.Api.Infrastructure.Security.Argon2idPasswordHasher>();
-        services.AddSingleton<IOtpGenerator, CsRaiders.Api.Infrastructure.Security.HmacOtpGenerator>();
-        services.AddSingleton<ITokenService, CsRaiders.Api.Infrastructure.Security.TokenService>();
+        services.AddScoped<IPasswordHasher, Security.Argon2idPasswordHasher>();
+        services.AddSingleton<IOtpGenerator, Security.HmacOtpGenerator>();
+        services.AddSingleton<ITokenService, Security.TokenService>();
         services.AddScoped<IAppSettingsProvider, AppSettingsProvider>();
         services.AddSingleton<IRbacInvalidationToken, RbacInvalidationToken>();
         services.AddScoped<ISessionReconciliationService, SessionReconciliationService>();

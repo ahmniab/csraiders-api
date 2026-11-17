@@ -1,12 +1,11 @@
 using CsRaiders.Api.Application.Common.Abstractions;
 using CsRaiders.Api.Application.Common.Interfaces.Repositories;
 using CsRaiders.Api.Application.Common.Interfaces.Security;
-using CsRaiders.Api.Domain.Constants;
+using CsRaiders.Api.Application.Extensions;
 using CsRaiders.Api.Domain.Enums;
 using CsRaiders.Api.Domain.Policies;
 using Mediator;
-using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Primitives;
+using Microsoft.Extensions.Caching.Distributed;
 
 namespace CsRaiders.Api.Application.Features.Auth.Commands.Refresh;
 
@@ -26,12 +25,11 @@ public sealed class RefreshTokenCommandHandler(
     ISessionRepository sessions,
     ITokenService tokens,
     IPlatformClock clock,
-    ISessionCacheHook sessionCache,
+    IDistributedCache cache,
     ISecurityEventRepository audit,
     IUserRepository users,
     IRoleRepository roles,
-    IMemoryCache cache,
-    IRbacInvalidationToken invalidation)
+    IMediator mediator)
     : IRequestHandler<RefreshTokenCommand, RefreshTokenResult>
 {
     public async ValueTask<RefreshTokenResult> Handle(RefreshTokenCommand request, CancellationToken ct)
@@ -65,52 +63,60 @@ public sealed class RefreshTokenCommandHandler(
         {
             case RefreshOutcome.Rotated:
                 sessions.Update(session);
-                sessionCache.Evict(session.Id);
-                var bitmask = await ResolvePermissionsBitmaskAsync(session.UserId, ct);
-                if (bitmask is null) return RefreshTokenResult.Failure("session_superseded");
-                return new(true, tokens.CreateAccessToken(session.UserId, session.Id, bitmask.Value, now), nextRefresh, session.Id);
+                await cache.RemoveAsync($"sid:{session.Id}");
+                var prems = await ResolvePermissionsBitmaskAsync(session.UserId, ct);
+                if (prems is null) 
+                    return RefreshTokenResult.Failure("session_superseded");
+                return new(
+                    true, 
+                    tokens.CreateAccessToken(
+                        session.UserId, 
+                        session.Id, 
+                        prems, 
+                        now), 
+                    nextRefresh, 
+                    session.Id);
+            
             case RefreshOutcome.DeviceMismatch:
                 return RefreshTokenResult.Failure("session_superseded");
+            
             case RefreshOutcome.ReuseDetected:
                 sessions.Update(session);
                 await audit.AddAsync("token_reuse_detected", session.UserId, createdAt: now, ct: ct);
-                sessionCache.Evict(session.Id);
+                await cache.RemoveAsync($"sid:{session.Id}");
                 return RefreshTokenResult.Failure("session_compromised");
+            
             case RefreshOutcome.Inactive:
                 return RefreshTokenResult.Failure("session_superseded");
+            
             default:
                 return RefreshTokenResult.Failure("invalid_grant");
         }
     }
 
-    private async Task<ulong?> ResolvePermissionsBitmaskAsync(Guid userId, CancellationToken ct)
+    private async Task<IReadOnlySet<string>?> ResolvePermissionsBitmaskAsync(Guid userId, CancellationToken ct)
     {
-        var cacheKey = $"perms_mask:{userId:D}";
-        if (cache.TryGetValue(cacheKey, out ulong cachedBitmask))
-        {
-            return cachedBitmask;
-        }
-
+        var cacheKey = $"perms:{userId:D}";
+        
+        var perms = await cache.GetObjectAsync<IReadOnlySet<string>>(cacheKey);
+        if (perms != null)
+            return perms;
+    
         var userWithPerms = await users.FindByIdWithPermissionsAsync(userId, ct: ct);
         if (userWithPerms is null || !userWithPerms.CanAuthenticate)
         {
             return null;
         }
-
+    
         var assignedRoles = userWithPerms.Roles.Count > 0
             ? await roles.FindByIdsAsync(userWithPerms.Roles.Select(r => r.RoleId), ct)
             : [];
-        var effectivePerms = EffectivePermissions.Resolve(assignedRoles, userWithPerms.PermissionOverrides);
-        var bitmask = PermissionBitmaskMapper.ToBitmask(effectivePerms);
-
-        cache.Set(
-            cacheKey,
-            bitmask,
-            new MemoryCacheEntryOptions
-            {
-                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10)
-            }.AddExpirationToken(new CancellationChangeToken(invalidation.CurrentToken)));
-
-        return bitmask;
+        perms 
+            = EffectivePermissions.Resolve(
+                assignedRoles, 
+                userWithPerms.PermissionOverrides);
+    
+        await cache.SetObjectAsync(cacheKey,perms);
+        return perms;
     }
 }

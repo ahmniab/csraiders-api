@@ -11,6 +11,7 @@ using CsRaiders.Api.Domain.Enums;
 using CsRaiders.Api.Domain.ValueObjects;
 using FluentValidation;
 using Mediator;
+using Microsoft.Extensions.Caching.Distributed;
 
 namespace CsRaiders.Api.Application.Features.Auth.Commands.ForgotPassword;
 
@@ -86,28 +87,45 @@ public sealed class ResetPasswordCommandHandler(
     IPasswordHasher passwords,
     ISessionRepository sessions,
     ILoginAttemptRepository loginAttempts,
-    ISessionCacheHook cache,
+    IDistributedCache cache,
     ISecurityAuditWriter audit,
     IPlatformClock clock) : IRequestHandler<ResetPasswordCommand, ResetPasswordResult>
 {
     public async ValueTask<ResetPasswordResult> Handle(ResetPasswordCommand request, CancellationToken ct)
     {
         var now = clock.UtcNow;
-        var candidate = SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(request.Token));
-        var token = await resetTokens.FindByTokenHashAsync(candidate, track: true, ct);
-        if (token is null || !CryptographicOperations.FixedTimeEquals(token.TokenHash, candidate) || !token.IsUsable(now))
+        
+        var candidate 
+            = SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(request.Token));
+        
+        var token =
+            await resetTokens.FindByTokenHashAsync(candidate, track: true, ct);
+        var sameToken = CryptographicOperations.FixedTimeEquals(token.TokenHash, candidate);
+        if (token == null || !sameToken || !token.IsUsable(now))
             return ResetPasswordResult.Invalid();
 
-        var user = await users.FindByIdAsync(token.UserId, track: true, ct);
-        if (user is null || !user.CanAuthenticate || !token.TryConsume(now)) return ResetPasswordResult.Invalid();
+        var user = 
+            await users.FindByIdAsync(token.UserId, track: true, ct);
+        
+        if (user is null || !user.CanAuthenticate || !token.TryConsume(now)) 
+            return ResetPasswordResult.Invalid();
+        
         var hash = await passwords.HashAsync(request.Password, ct);
-        if (hash.Outcome == HashOutcome.Unavailable) return ResetPasswordResult.Invalid();
+        
+        if (hash.Outcome == HashOutcome.Unavailable) 
+            return ResetPasswordResult.Invalid();
 
         user.ChangePassword(hash.Hash!, now);
         users.Update(user);
-        var active = await sessions.FindActiveByUserIdAsync(user.Id, now, track: false, ct);
+        
+        var active = 
+            await sessions.FindActiveByUserIdAsync(user.Id, now, track: false, ct);
+        
         await sessions.RevokeAllByUserIdAsync(user.Id, SessionRevokeReason.PasswordReset, now, ct);
-        foreach (var session in active) cache.Evict(session.Id);
+        
+        foreach (var session in active) 
+            cache.RemoveAsync($"sid:{session.Id}");
+        
         await loginAttempts.ResetByUserIdAsync(user.Id, now, ct);
         await audit.WriteAsync("password_reset_completed", user.Id, user.Email, ct: ct);
         return new(true);

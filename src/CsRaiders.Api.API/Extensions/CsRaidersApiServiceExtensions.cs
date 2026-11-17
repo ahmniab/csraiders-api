@@ -54,9 +54,6 @@ public static class CsRaidersApiServiceExtensions
         // ── Services ────────────────────────────────────────────────
         builder.Services.AddControllers();
         builder.Services.AddAuthorization(AuthPolicies.AddAuthPolicies);
-        builder.Services.AddMemoryCache();
-        builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionAuthorizationPolicyProvider>();
-        builder.Services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
         builder.Services.AddScoped<ISessionCookieWriter, SessionCookieWriter>();
         builder.Services.AddScoped<OriginAndHeaderValidationFilter>();
         builder.Services.AddEndpointsApiExplorer();
