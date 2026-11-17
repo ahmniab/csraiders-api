@@ -3,6 +3,12 @@
 ## Overview
 Core domain entities managing identities, authentication state, credential verification, sessions, role-based access control, brute-force throttling, security auditing, and application settings.
 
+> **Note (anemic model):** entities here are pure property bags. All behavior has moved to the Application layer:
+> creation logic lives in `CsRaiders.Api.Application/Factories/*Factory.cs` (e.g. `UserFactory.RegisterVerified`, `SessionFactory.Open`),
+> and mutation/state logic lives in `CsRaiders.Api.Application/Extensions/*Extensions.cs` (e.g. `SessionExtensions.TryRotate`, `UserExtensions.Suspend`).
+> The invariants documented below still hold — they are now enforced by the extensions, not the entities.
+> Value objects (`Email`, `LoginGate`, `PermissionChange`) and domain constants/policies remain in Domain.
+
 ## Interface
 - [AppSetting.cs:AppSetting]: Key-value configuration entity tracking mutable runtime settings (`Create`, `SetValue`).
 - [EmailMessage.cs:EmailPurpose]: Enumeration defining the contextual purpose of an email dispatch (`RegistrationOtp`, `PasswordReset`, `AccountNotice`).
