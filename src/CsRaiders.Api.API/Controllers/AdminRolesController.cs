@@ -1,10 +1,10 @@
 using System.Security.Claims;
-using CsRaiders.Api.API.Authorization;
 using CsRaiders.Api.Application.Features.Admin;
 using CsRaiders.Api.Application.Common.Interfaces.Repositories;
 using CsRaiders.Api.Domain.Constants;
 using CsRaiders.Api.Domain.Enums;
 using Mediator;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace CsRaiders.Api.API.Controllers;
@@ -14,7 +14,7 @@ namespace CsRaiders.Api.API.Controllers;
 public sealed class AdminRolesController(IMediator mediator, IRoleRepository roles) : ControllerBase
 {
     [HttpGet]
-    [HasPermission("role:manage")]
+    [Authorize(Policy = PermissionCatalog.RoleManage)]
     public async Task<IActionResult> List(CancellationToken ct)
     {
         var result = await roles.ListAsync(ct);
@@ -22,11 +22,11 @@ public sealed class AdminRolesController(IMediator mediator, IRoleRepository rol
     }
 
     [HttpGet("permissions")]
-    [HasPermission("role:manage")]
+    [Authorize(Policy = PermissionCatalog.RoleManage)]
     public IActionResult Permissions() => Ok(new { permissions = PermissionCatalog.All });
 
     [HttpGet("{roleId:guid}")]
-    [HasPermission("role:manage")]
+    [Authorize(Policy = PermissionCatalog.RoleManage)]
     public async Task<IActionResult> Get(Guid roleId, CancellationToken ct)
     {
         var role = await roles.FindByIdAsync(roleId, ct: ct);
@@ -34,7 +34,7 @@ public sealed class AdminRolesController(IMediator mediator, IRoleRepository rol
     }
 
     [HttpPost]
-    [HasPermission("role:manage")]
+    [Authorize(Policy = PermissionCatalog.RoleManage)]
     public async Task<IActionResult> Create(CreateRoleRequest request, CancellationToken ct)
     {
         if (!Enum.TryParse<RoleScope>(request.Scope, true, out var scope))
@@ -46,7 +46,7 @@ public sealed class AdminRolesController(IMediator mediator, IRoleRepository rol
     }
 
     [HttpPut("{roleId:guid}/permissions")]
-    [HasPermission("role:manage")]
+    [Authorize(Policy = PermissionCatalog.RoleManage)]
     public async Task<IActionResult> UpdatePermissions(Guid roleId, UpdateRolePermissionsRequest request, CancellationToken ct)
     {
         var result = await mediator.Send(new UpdateRolePermissionsCommand(UserId(), roleId, request.Permissions ?? []), ct);
@@ -54,7 +54,7 @@ public sealed class AdminRolesController(IMediator mediator, IRoleRepository rol
     }
 
     [HttpPut("{roleId:guid}")]
-    [HasPermission("role:manage")]
+    [Authorize(Policy = PermissionCatalog.RoleManage)]
     public async Task<IActionResult> Update(Guid roleId, UpdateRoleRequest request, CancellationToken ct)
     {
         if (!Enum.TryParse<RoleScope>(request.Scope, true, out var scope))
@@ -63,7 +63,7 @@ public sealed class AdminRolesController(IMediator mediator, IRoleRepository rol
     }
 
     [HttpDelete("{roleId:guid}")]
-    [HasPermission("role:manage")]
+    [Authorize(Policy = PermissionCatalog.RoleManage)]
     public async Task<IActionResult> Delete(Guid roleId, CancellationToken ct) =>
         ToActionResult(await mediator.Send(new DeleteRoleCommand(UserId(), roleId), ct));
 

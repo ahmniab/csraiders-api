@@ -10,12 +10,6 @@ public static class SensitivePermissions
         PermissionCatalog.SessionRevoke
     };
 
-    public const ulong SensitiveBits =
-        (ulong)(PermissionBits.RoleManage |
-                PermissionBits.PaymentRefund |
-                PermissionBits.UserWrite |
-                PermissionBits.SessionRevoke);
-
     public static bool IsSensitive(string? permission) =>
         !string.IsNullOrEmpty(permission) && All.Contains(permission);
 

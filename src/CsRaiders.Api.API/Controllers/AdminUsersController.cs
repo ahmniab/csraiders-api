@@ -2,8 +2,10 @@ using System.Security.Claims;
 using CsRaiders.Api.API.Authorization;
 using CsRaiders.Api.Application.Features.Admin;
 using CsRaiders.Api.Application.Features.Admin.Users;
+using CsRaiders.Api.Domain.Constants;
 using CsRaiders.Api.Domain.Enums;
 using Mediator;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace CsRaiders.Api.API.Controllers;
@@ -12,8 +14,9 @@ namespace CsRaiders.Api.API.Controllers;
 [Route("api/v1/admin/users")]
 public sealed class AdminUsersController(IMediator mediator) : ControllerBase
 {
+    [Authorize(Policy = PermissionCatalog.UserWrite)]
+    [Authorize(Policy = PermissionCatalog.RoleManage)]
     [HttpPost("{userId:guid}/permissions")]
-    [HasPermission("user:manage")]
     public async Task<IActionResult> SetPermission(Guid userId, SetUserPermissionOverrideRequest request, CancellationToken ct)
     {
         PermissionEffect? effect = request.Clear ? null : request.Effect?.ToLowerInvariant() switch
@@ -27,21 +30,22 @@ public sealed class AdminUsersController(IMediator mediator) : ControllerBase
         return ToActionResult(await mediator.Send(new SetUserPermissionOverrideCommand(UserId(), userId, request.Permission, effect), ct));
     }
 
+    [Authorize(Policy = PermissionCatalog.UserWrite)]
+    [Authorize(Policy = PermissionCatalog.RoleManage)]
     [HttpPut("{userId:guid}/roles")]
-    [HasPermission("user:manage")]
     public async Task<IActionResult> SetRoles(Guid userId, ElevateUserRolesRequest request, CancellationToken ct) =>
         ToActionResult(await mediator.Send(new ElevateUserRolesCommand(UserId(), userId, request.RoleIds ?? []), ct));
 
+    [Authorize(Policy = PermissionCatalog.UserWrite)]
     [HttpPost("{userId:guid}/suspend")]
-    [HasPermission("user:manage")]
     public async Task<IActionResult> Suspend(Guid userId, CancellationToken ct)
     {
         var result = await mediator.Send(new SuspendUserCommand(UserId(), userId), ct);
         return result.Succeeded ? Ok(new { suspended = true }) : result.NotFound ? NotFound() : Conflict(new { error = new { code = "invalid_state", message = "The user cannot be suspended in its current state." } });
     }
 
+    [Authorize(Policy = PermissionCatalog.UserWrite)]
     [HttpPost("{userId:guid}/reactivate")]
-    [HasPermission("user:manage")]
     public async Task<IActionResult> Reactivate(Guid userId, CancellationToken ct)
     {
         var result = await mediator.Send(new ReactivateUserCommand(UserId(), userId), ct);
