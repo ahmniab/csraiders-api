@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using CsRaiders.Api.Application.Common.Abstractions;
 using CsRaiders.Api.Application.Extensions;
 using CsRaiders.Api.Application.Features.Sessions.Queries;
 using Mediator;
@@ -8,8 +9,9 @@ namespace CsRaiders.Api.API.Middleware;
 public sealed class SessionValidationMiddleware(RequestDelegate next)
 {
     public async Task InvokeAsync(
-        HttpContext context, 
-        IMediator mediator)
+        HttpContext context,
+        IMediator mediator,
+        IPlatformClock clock)
     {
         var sidClaim = 
             context.User.FindFirstValue("sid");
@@ -23,7 +25,7 @@ public sealed class SessionValidationMiddleware(RequestDelegate next)
 
         var status = await mediator.Send(new GetSessionStatusByIdQuery(sid.ToString()));
         
-        if (status.IsActive())
+        if (status.IsActive(clock.UtcNow))
             await next(context);
         
         context.Response.Cookies.Delete("__Host-csraiders_rt");

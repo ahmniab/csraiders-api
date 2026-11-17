@@ -2,7 +2,6 @@ using CsRaiders.Api.Application.Common.Abstractions;
 using CsRaiders.Api.Application.Common.Interfaces.Repositories;
 using CsRaiders.Api.Application.Common.Interfaces.Security;
 using CsRaiders.Api.Application.Extensions;
-using CsRaiders.Api.Domain.Entities;
 using CsRaiders.Api.Domain.Enums;
 using Mediator;
 using Microsoft.Extensions.Caching.Distributed;
