@@ -1,3 +1,5 @@
+using CsRaiders.Api.Application.Factories;
+using CsRaiders.Api.Application.Extensions;
 using System.Net;
 using CsRaiders.Api.Application.Common.Interfaces.Repositories;
 using CsRaiders.Api.Application.Common.Interfaces.Security;
@@ -32,7 +34,7 @@ public sealed class LoginAttemptTracker(ILoginAttemptRepository attempts) : ILog
         var isNew = row is null;
         if (row is null)
         {
-            row = LoginAttempt.For(email, keyIp, now);
+            row = LoginAttemptFactory.For(email, keyIp, now);
             await attempts.AddAsync(row, ct);
         }
 

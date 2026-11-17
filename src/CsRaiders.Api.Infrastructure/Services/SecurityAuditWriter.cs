@@ -1,3 +1,4 @@
+using CsRaiders.Api.Application.Factories;
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -20,7 +21,7 @@ public sealed class SecurityAuditWriter(IDbContextFactory<AppDbContext> factory,
         await using var db = await factory.CreateDbContextAsync(ct);
         var node = details is null ? new JsonObject() : JsonSerializer.SerializeToNode(details);
         Redact(node);
-        db.SecurityEvents.Add(CsRaiders.Api.Domain.Entities.SecurityEvent.Create(eventName, userId, email, ip,
+        db.SecurityEvents.Add(SecurityEventFactory.Create(eventName, userId, email, ip,
             JsonDocument.Parse(node?.ToJsonString() ?? "{}"), DateTimeOffset.UtcNow));
         await db.SaveChangesAsync(ct);
     }

@@ -1,3 +1,4 @@
+using CsRaiders.Api.Application.Factories;
 using CsRaiders.Api.Application.Common.Events;
 using CsRaiders.Api.Application.Common.Interfaces.Repositories;
 using CsRaiders.Api.Application.Common.Interfaces.Security;
@@ -106,7 +107,7 @@ public sealed class EmailSenderWorker(
 
             var failedAt = DateTimeOffset.UtcNow;
 
-            var deadLetter = DeadLetterEmail.Create(
+            var deadLetter = DeadLetterEmailFactory.Create(
                 recipient: message.To,
                 subject: message.Subject,
                 purpose: message.Purpose.ToString(),
