@@ -1,7 +1,6 @@
 using CsRaiders.Api.Application.Common.Interfaces.Repositories;
 using CsRaiders.Api.Application.Common.Interfaces.Security;
 using CsRaiders.Api.Application.Extensions;
-using CsRaiders.Api.Domain.Entities;
 using Mediator;
 using Microsoft.Extensions.Caching.Distributed;
 
@@ -17,21 +16,16 @@ public sealed class GetSessionStatusByIdQueryHandler(
     {
         if (Guid.TryParse(cmd.Id, out var id))
         {
-            var session = await cache.GetObjectAsync<Session>($"sid:{cmd.Id}");
-            if (session != null)
-            {
-                await cache.SetObjectAsync($"sid:{cmd.Id}", session);
-                return SessionStatus.FromSession(session);
-            }
+            var status = await cache.GetObjectAsync<SessionStatus>($"sid:{cmd.Id}");
+            if (status != null) return status;
 
-            session =
-                await repository.FindByIdAsync(id);
+            var session = await repository.FindByIdAsync(id);
             if (session != null)
             {
-                await cache.SetObjectAsync($"sid:{cmd.Id}", session);
-                return SessionStatus.FromSession(session);
+                status = SessionStatus.FromSession(session);
+                await cache.SetObjectAsync($"sid:{cmd.Id}", status);
+                return status;
             }
-            
         }
 
         throw new InvalidOperationException($"Session with id {cmd.Id} not found");

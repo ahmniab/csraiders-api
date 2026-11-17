@@ -24,10 +24,13 @@ public sealed class SessionValidationMiddleware(RequestDelegate next)
         }
 
         var status = await mediator.Send(new GetSessionStatusByIdQuery(sid.ToString()));
-        
+
         if (status.IsActive(clock.UtcNow))
+        {
             await next(context);
-        
+            return;
+        }
+
         context.Response.Cookies.Delete("__Host-csraiders_rt");
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
         context.Response.ContentType = "application/problem+json";

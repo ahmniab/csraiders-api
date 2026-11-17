@@ -2,7 +2,6 @@ using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-using System.Text.Json;
 using CsRaiders.Api.Application.Common.Interfaces.Security;
 using CsRaiders.Api.Domain.Constants;
 using Microsoft.Extensions.Configuration;
@@ -19,10 +18,11 @@ public sealed class TokenService(IConfiguration configuration) : ITokenService
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
         var descriptor = new SecurityTokenDescriptor
         {
-            Subject = new ClaimsIdentity([
+            Subject = new ClaimsIdentity(
+            [
                 new(JwtRegisteredClaimNames.Sub, userId.ToString()),
                 new(JwtRegisteredClaimNames.Sid, sessionId.ToString()),
-                new("permissions", JsonSerializer.Serialize(effectivePerms))
+                .. effectivePerms.Select(p => new Claim("permission", p))
             ]),
             IssuedAt = now.UtcDateTime,
             Expires = now.Add(AuthRules.AccessTokenLifetime).UtcDateTime,

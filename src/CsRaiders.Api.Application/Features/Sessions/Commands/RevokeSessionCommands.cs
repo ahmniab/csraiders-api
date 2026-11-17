@@ -29,7 +29,7 @@ public sealed class RevokeSessionCommandHandler(
 
         session.Revoke(SessionRevokeReason.Logout, now);
         sessions.Update(session);
-        await cache.SetObjectAsync($"sid:{session.Id}", session);
+        await cache.RemoveAsync($"sid:{session.Id}");
         await audit.WriteAsync("session_revoked", 
             request.UserId, details: new { reason = "logout" }, ct: ct);
         return new(true);
@@ -51,7 +51,7 @@ public sealed class LogoutCommandHandler(
 
         session.Revoke(SessionRevokeReason.Logout, now);
         sessions.Update(session);
-        await cache.SetObjectAsync($"sid:{session.Id}", session);
+        await cache.RemoveAsync($"sid:{session.Id}");
         await audit.WriteAsync("session_revoked", request.UserId, details: new { reason = "logout" }, ct: ct);
         return new(true);
     }
@@ -77,8 +77,8 @@ public sealed class RevokeAllOtherSessionsCommandHandler(
             request.CurrentSessionId, 
             now, 
             ct);
-        foreach (var session in otherSessions) 
-            await cache.SetObjectAsync($"sid:{session.Id}", session);
+        foreach (var session in otherSessions)
+            await cache.RemoveAsync($"sid:{session.Id}");
         await audit.WriteAsync("session_revoked", request.UserId,
             details: new
             {
