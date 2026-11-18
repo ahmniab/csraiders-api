@@ -19,9 +19,19 @@ public static class CsRaidersApiAppExtensions
         });
 
         // ── Middleware pipeline ──────────────────────────────────────
+        // Each UseTimedStep checkpoint measures the middleware registered directly
+        // after it; all timings are aggregated into the "Request pipeline timing"
+        // summary log entry emitted once per request (see PipelineTimingMiddleware).
+        app.UseTimedStep("ForwardedHeaders");
         app.UseForwardedHeaders();
+
+        app.UseTimedStep("GlobalExceptionMiddleware");
         app.UseMiddleware<GlobalExceptionMiddleware>();
+
+        app.UseTimedStep("SerilogRequestLogging");
         app.UseSerilogRequestLogging();
+
+        app.UseTimedStep("RateLimiter");
         app.UseRateLimiter();
 
         if (app.Environment.IsDevelopment())
@@ -40,10 +50,19 @@ public static class CsRaidersApiAppExtensions
             app.UseSwaggerUI();
         }
 
+        app.UseTimedStep("HttpsRedirection");
         app.UseHttpsRedirection();
+
+        app.UseTimedStep("Authentication");
         app.UseAuthentication();
+
+        app.UseTimedStep("SessionValidation");
         app.UseMiddleware<SessionValidationMiddleware>();
+
+        app.UseTimedStep("Authorization");
         app.UseAuthorization();
+
+        app.UseTimedStep("Endpoint");
         app.MapControllers();
     }
 }

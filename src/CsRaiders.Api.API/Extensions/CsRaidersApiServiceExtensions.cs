@@ -7,6 +7,7 @@ using CsRaiders.Api.API.Common;
 using CsRaiders.Api.API.Filters;
 using CsRaiders.Api.API.Services;
 using CsRaiders.Api.Application.Common.Abstractions;
+using CsRaiders.Api.Application.Common.Diagnostics;
 using CsRaiders.Api.Application.DependencyInjection;
 using CsRaiders.Api.Infrastructure.DependencyInjection;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -138,6 +139,7 @@ public static class CsRaidersApiServiceExtensions
 
         builder.Services.AddApplicationServices();
         builder.Services.AddInfrastructureServices(builder.Configuration);
+        builder.Services.Configure<PipelineTimingOptions>(builder.Configuration.GetSection("PipelineTiming"));
 
         return builder;
     }
