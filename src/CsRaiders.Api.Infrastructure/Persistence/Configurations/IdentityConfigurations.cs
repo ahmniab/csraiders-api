@@ -22,7 +22,7 @@ internal sealed class UserConfiguration : IEntityTypeConfiguration<User>
         b.HasIndex(u => u.Status).HasDatabaseName("ix_users_status");
         b.HasQueryFilter(u => u.DeletedAt == null);                              // spec 16.4
 
-        b.HasMany(u => u.Roles).WithOne().HasForeignKey(r => r.UserId).OnDelete(DeleteBehavior.Cascade);
+        b.HasMany(u => u.Roles).WithOne(r => r.User).HasForeignKey(r => r.UserId).OnDelete(DeleteBehavior.Cascade);
         b.HasMany(u => u.PermissionOverrides).WithOne().HasForeignKey(p => p.UserId).OnDelete(DeleteBehavior.Cascade);
     }
 }
@@ -51,8 +51,11 @@ internal sealed class UserRoleConfiguration : IEntityTypeConfiguration<UserRole>
     {
         b.ToTable("user_roles");
         b.HasKey(x => new { x.UserId, x.RoleId });
-        b.HasOne<Role>().WithMany().HasForeignKey(x => x.RoleId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne(x => x.Role).WithMany().HasForeignKey(x => x.RoleId).OnDelete(DeleteBehavior.Restrict);
         b.HasIndex(x => x.RoleId).HasDatabaseName("ix_user_roles_role");
+
+        // Matches the soft-delete filter on User so roles of deleted users are not visible either.
+        b.HasQueryFilter(x => x.User!.DeletedAt == null);
     }
 }
 

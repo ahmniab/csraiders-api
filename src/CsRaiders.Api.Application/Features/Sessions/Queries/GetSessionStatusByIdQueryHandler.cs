@@ -1,3 +1,4 @@
+using CsRaiders.Api.Application.Common.Abstractions;
 using CsRaiders.Api.Application.Common.Interfaces.Repositories;
 using CsRaiders.Api.Application.Common.Interfaces.Security;
 using CsRaiders.Api.Application.Extensions;
@@ -6,7 +7,7 @@ using Microsoft.Extensions.Caching.Distributed;
 
 namespace CsRaiders.Api.Application.Features.Sessions.Queries;
 
-public sealed record GetSessionStatusByIdQuery(string Id) : IRequest<SessionStatus>;
+public sealed record GetSessionStatusByIdQuery(string Id) : IRequest<SessionStatus>, IReadOnlyMessage;
 
 public sealed class GetSessionStatusByIdQueryHandler(
     IDistributedCache cache,

@@ -13,15 +13,46 @@ public sealed class UserRepository(AppDbContext db) : IUserRepository
     public async Task<IReadOnlyList<Guid>> FindIdsByRoleIdAsync(Guid roleId, CancellationToken ct = default) =>
         await db.UserRoles.AsNoTracking().Where(x => x.RoleId == roleId).Select(x => x.UserId).ToListAsync(ct);
 
-    public async Task<(bool HasSessionMulti, bool IsStudent)> GetAuthenticationPolicyAsync(Guid userId, CancellationToken ct = default)
+    public async Task<(bool HasSessionMulti, bool IsStudent)> GetAuthenticationPolicyAsync(
+        Guid userId,
+        CancellationToken ct = default)
     {
-        var roleIds = await db.UserRoles.Where(x => x.UserId == userId).Select(x => x.RoleId).ToListAsync(ct);
-        var roles = await db.Roles.Where(x => roleIds.Contains(x.Id)).ToListAsync(ct);
-        var overrides = await db.UserPermissions.Where(x => x.UserId == userId && x.Permission == PermissionCatalog.SessionMulti).ToListAsync(ct);
-        var grantedByRole = roles.Any(r => r.Permissions.Contains(PermissionCatalog.SessionMulti));
-        var denied = overrides.Any(o => o.Effect == PermissionEffect.Deny);
-        var granted = overrides.Any(o => o.Effect == PermissionEffect.Grant);
-        return (HasSessionMulti: !denied && (grantedByRole || granted), IsStudent: roles.Any(r => r.Scope == RoleScope.Student));
+        var result = await db.Users
+            .Where(u => u.Id == userId)
+            .Select(u => new
+            {
+                IsStudent = db.UserRoles
+                    .Any(ur =>
+                        ur.UserId == u.Id &&
+                        db.Roles.Any(r =>
+                            r.Id == ur.RoleId &&
+                            r.Scope == RoleScope.Student)),
+
+                GrantedByRole = db.UserRoles
+                    .Any(ur =>
+                        ur.UserId == u.Id &&
+                        db.Roles.Any(r =>
+                            r.Id == ur.RoleId &&
+                            r.Permissions.Contains(PermissionCatalog.SessionMulti))),
+
+                Denied = db.UserPermissions
+                    .Any(p =>
+                        p.UserId == u.Id &&
+                        p.Permission == PermissionCatalog.SessionMulti &&
+                        p.Effect == PermissionEffect.Deny),
+
+                Granted = db.UserPermissions
+                    .Any(p =>
+                        p.UserId == u.Id &&
+                        p.Permission == PermissionCatalog.SessionMulti &&
+                        p.Effect == PermissionEffect.Grant)
+            })
+            .SingleAsync(ct);
+
+        return (
+            HasSessionMulti: !result.Denied && (result.GrantedByRole || result.Granted),
+            IsStudent: result.IsStudent
+        );
     }
 
     public Task AcquireLoginLockAsync(Guid userId, CancellationToken ct = default) =>
@@ -51,6 +82,19 @@ public sealed class UserRepository(AppDbContext db) : IUserRepository
             .Include(u => u.PermissionOverrides)
             .AsSplitQuery()
             .FirstOrDefaultAsync(u => u.Id == id, ct);
+    }
+    public async Task<User?> FindByEmailWithPermissionsAsync(
+        Email email, 
+        bool track = false, 
+        CancellationToken ct = default)
+    {
+        var query = track ? db.Users.AsQueryable() : db.Users.AsNoTracking();
+        return await query
+            .Include(u => u.Roles)
+                .ThenInclude(r => r.Role)
+            .Include(u => u.PermissionOverrides)
+            .AsSplitQuery()
+            .FirstOrDefaultAsync(u => u.Email == email, ct);
     }
 
     public async Task<bool> ExistsAsync(Email email, CancellationToken ct = default)

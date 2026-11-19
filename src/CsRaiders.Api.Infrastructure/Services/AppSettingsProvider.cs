@@ -16,7 +16,8 @@ public sealed class AppSettingsProvider(IAppSettingRepository settings) : IAppSe
             if (cached is { } value && value.Expires > DateTimeOffset.UtcNow) return value.Value;
 
         var raw = await settings.GetValueAsync(Key, ct);
-        var resolved = int.TryParse(raw, out var parsed) && parsed > 0 ? parsed : AuthRules.DefaultMultiSessionCap;
+        var resolved = int.TryParse(raw, out var parsed) 
+                       && parsed > 0 ? parsed : AuthRules.DefaultMultiSessionCap;
         lock (sync) cached = (resolved, DateTimeOffset.UtcNow.AddSeconds(5));
         return resolved;
     }

@@ -3,6 +3,7 @@ using CsRaiders.Api.Domain.Entities;
 using CsRaiders.Api.Domain.Enums;
 using CsRaiders.Api.Domain.ValueObjects;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 
 namespace CsRaiders.Api.Infrastructure.Persistence;
 
@@ -19,7 +20,6 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<SecurityEvent> SecurityEvents => Set<SecurityEvent>();
     public DbSet<AppSetting> AppSettings => Set<AppSetting>();
     public DbSet<DeadLetterEmail> DeadLetterEmails => Set<DeadLetterEmail>();
-
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasPostgresExtension("citext");                       // emitted as CREATE EXTENSION in the migration

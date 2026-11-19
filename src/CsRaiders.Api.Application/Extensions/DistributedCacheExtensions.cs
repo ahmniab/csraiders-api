@@ -22,7 +22,8 @@ public static class DistributedCacheExtensions
         SetObjectAsync<T>(this IDistributedCache cache,
             string key,
             T data,
-        DistributedCacheEntryOptions options)
+        DistributedCacheEntryOptions options,
+            CancellationToken ct = default)
     {
         await cache.SetStringAsync(key,
             JsonSerializer.Serialize(data, CacheJson), options);
@@ -32,7 +33,8 @@ public static class DistributedCacheExtensions
         SetObjectAsync<T>(this IDistributedCache cache,
             string key,
             T data,
-            int minutesTtl = 5)
+            int minutesTtl = 5,
+            CancellationToken ct = default)
     {
         var options = new DistributedCacheEntryOptions
         {
@@ -47,7 +49,7 @@ public static class DistributedCacheExtensions
     }
 
     public static async Task<T?> GetObjectAsync<T>(
-        this IDistributedCache cache, string key) where T : class
+        this IDistributedCache cache, string key, CancellationToken ct = default) where T : class
     {
         var objectJson = await cache.GetStringAsync(key);
         if (string.IsNullOrWhiteSpace(objectJson))

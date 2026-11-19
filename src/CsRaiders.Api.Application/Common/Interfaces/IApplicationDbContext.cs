@@ -16,6 +16,7 @@ public interface IApplicationDbContext
     DbSet<PasswordResetToken> PasswordResetTokens { get; }
     DbSet<SecurityEvent> SecurityEvents { get; }
     DbSet<AppSetting> AppSettings { get; }
+    public ChangeTracker ChangeTracker { get; }
 
     EntityEntry Entry(object entity);
 

@@ -6,6 +6,7 @@ Provides centralized HTTP pipeline exception handling and active session validat
 ## Interface
 - `GlobalExceptionMiddleware` exception handling middleware intercepting unhandled errors (`[GlobalExceptionMiddleware.cs:GlobalExceptionMiddleware]`, `[GlobalExceptionMiddleware.cs:GlobalExceptionMiddleware.InvokeAsync]`)
 - `SessionValidationMiddleware` session status and revocation verification middleware (`[SessionValidationMiddleware.cs:SessionValidationMiddleware]`, `[SessionValidationMiddleware.cs:SessionValidationMiddleware.InvokeAsync]`)
+- `PipelineTimingMiddleware.UseTimedStep` timing checkpoint middleware measuring the middleware registered directly after it and aggregating per-step durations into the request pipeline timing summary (`[PipelineTimingMiddleware.cs:UseTimedStep]`)
 
 ## Invariants
 - Catches any unhandled `Exception` thrown down the pipeline (`[GlobalExceptionMiddleware.cs:GlobalExceptionMiddleware.InvokeAsync]`).
@@ -17,6 +18,7 @@ Provides centralized HTTP pipeline exception handling and active session validat
 
 ## Side Effects
 - Logs error message and exception details to `ILogger<GlobalExceptionMiddleware>` (`[GlobalExceptionMiddleware.cs:GlobalExceptionMiddleware.InvokeAsync]`).
+- Emits one `Request pipeline timing` information log entry per request via the scoped `IRequestStepTimer`, with inclusive/exclusive durations for every `UseTimedStep` checkpoint and Mediator pipeline behavior step (`[PipelineTimingMiddleware.cs:UseTimedStep]`).
 - Writes JSON error payloads directly to the HTTP response stream (`[GlobalExceptionMiddleware.cs:GlobalExceptionMiddleware.HandleExceptionAsync]`, `[SessionValidationMiddleware.cs:SessionValidationMiddleware.InvokeAsync]`).
 - Increments `session_cache.hit` and `session_cache.miss` metrics via `IAuthMetricsRecorder.Increment` (`[SessionValidationMiddleware.cs:SessionValidationMiddleware.InvokeAsync]`).
 - Queries session status via `ISessionStatusReader.ReadAsync` on cache misses (`[SessionValidationMiddleware.cs:SessionValidationMiddleware.InvokeAsync]`).

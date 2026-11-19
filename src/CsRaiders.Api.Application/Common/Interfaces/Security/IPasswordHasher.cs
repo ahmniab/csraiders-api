@@ -1,6 +1,10 @@
 namespace CsRaiders.Api.Application.Common.Interfaces.Security;
 
-public enum HashOutcome { Success, Unavailable }
+public enum HashOutcome
+{
+    Success, 
+    Unavailable
+}
 public readonly record struct PasswordHashResult(HashOutcome Outcome, string? Hash)
 {
     public static PasswordHashResult Unavailable => new(HashOutcome.Unavailable, null);

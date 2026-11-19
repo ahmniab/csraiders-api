@@ -698,19 +698,23 @@ namespace CsRaiders.Api.Infrastructure.Migrations
 
             modelBuilder.Entity("CsRaiders.Api.Domain.Entities.UserRole", b =>
                 {
-                    b.HasOne("CsRaiders.Api.Domain.Entities.Role", null)
+                    b.HasOne("CsRaiders.Api.Domain.Entities.Role", "Role")
                         .WithMany()
                         .HasForeignKey("RoleId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_user_roles_roles_role_id");
 
-                    b.HasOne("CsRaiders.Api.Domain.Entities.User", null)
+                    b.HasOne("CsRaiders.Api.Domain.Entities.User", "User")
                         .WithMany("Roles")
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_user_roles_users_user_id");
+
+                    b.Navigation("Role");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("CsRaiders.Api.Domain.Entities.User", b =>

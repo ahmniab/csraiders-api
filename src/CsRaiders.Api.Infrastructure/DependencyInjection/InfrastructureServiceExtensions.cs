@@ -26,7 +26,7 @@ public static class InfrastructureServiceExtensions
         // One non-pooled factory registration supplies both scoped AppDbContext instances
         // and IDbContextFactory<AppDbContext>. Avoid registering AddDbContext and a
         // pooled factory together: the pool is singleton but its options become scoped.
-        services.AddDbContextFactory<AppDbContext>(o =>
+        services.AddPooledDbContextFactory<AppDbContext>(o =>
             o.UseNpgsql(connectionString).UseSnakeCaseNamingConvention());
         services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<AppDbContext>());
         services.AddScoped<ITransactionManager, EfTransactionManager>();
@@ -39,7 +39,7 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IRoleRepository, RoleRepository>();
         services.AddScoped<ISessionRepository, SessionRepository>();
         services.AddScoped<ILoginAttemptRepository, LoginAttemptRepository>();
-        services.AddScoped<ILoginAttemptTracker, LoginAttemptTracker>();
+        services.AddScoped<ILoginAttemptTracker, MemoryLoginAttemptTracker>();
         services.AddScoped<IPendingRegistrationRepository, PendingRegistrationRepository>();
         services.AddScoped<IPasswordResetTokenRepository, PasswordResetTokenRepository>();
         services.AddScoped<ISecurityEventRepository, SecurityEventRepository>();
@@ -83,7 +83,7 @@ public static class InfrastructureServiceExtensions
         }
         services.AddHostedService<EmailSenderWorker>();
         services.AddHostedService<AuthCleanupWorker>();
-        services.AddScoped<IPasswordHasher, Security.Argon2idPasswordHasher>();
+        services.AddScoped<IPasswordHasher, Security.Argon2IdPasswordHasher>();
         services.AddSingleton<IOtpGenerator, Security.HmacOtpGenerator>();
         services.AddSingleton<ITokenService, Security.TokenService>();
         services.AddScoped<IAppSettingsProvider, AppSettingsProvider>();

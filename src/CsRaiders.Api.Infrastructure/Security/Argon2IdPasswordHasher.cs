@@ -14,22 +14,22 @@ namespace CsRaiders.Api.Infrastructure.Security;
 /// Verification always re-derives with the parameters stored in the encoded hash,
 /// so parameter changes in configuration never invalidate existing passwords.
 /// </summary>
-public sealed class Argon2idPasswordHasher(IConfiguration configuration) : IPasswordHasher
+public sealed class Argon2IdPasswordHasher(IConfiguration configuration) : IPasswordHasher
 {
     private const int ArgonVersion = 19;
-    private const int DefaultMemoryKb = 19456;   // OWASP-recommended minimum (19 MiB)
+    private const int DefaultMemoryKb = 5 * 1024;   // OWASP-recommended minimum (19 MiB) 19 * 1024 
     private const int DefaultIterations = 2;
     private const int DefaultParallelism = 1;
     private const int HashLength = 32;
     private const int SaltLength = 16;
 
-    private readonly SemaphoreSlim gate = new(Math.Max(1, Environment.ProcessorCount));
-    private readonly int timeoutSeconds = int.TryParse(configuration["Crypto:SemaphoreTimeoutSeconds"], out var configuredTimeout) ? configuredTimeout : 2;
-    private readonly int activePepper = configuration.GetSection("Auth:PasswordPepper").GetChildren().Select(x => int.TryParse(x.Key, out var n) ? n : 1).DefaultIfEmpty(1).Max();
-    private readonly IConfiguration config = configuration;
+    private readonly SemaphoreSlim _gate = new(Math.Max(1, Environment.ProcessorCount));
+    private readonly int _timeoutSeconds = int.TryParse(configuration["Crypto:SemaphoreTimeoutSeconds"], out var configuredTimeout) ? configuredTimeout : 2;
+    private readonly int _activePepper = configuration.GetSection("Auth:PasswordPepper").GetChildren().Select(x => int.TryParse(x.Key, out var n) ? n : 1).DefaultIfEmpty(1).Max();
+    private readonly IConfiguration _config = configuration;
 
     /// <summary>Parameters used for newly created hashes.</summary>
-    private readonly HashParams defaults = new(
+    private readonly HashParams _defaults = new(
         Clamp(
             GetInt(
                 configuration, 
@@ -57,14 +57,14 @@ public sealed class Argon2idPasswordHasher(IConfiguration configuration) : IPass
 
     public async Task<PasswordHashResult> HashAsync(string password, CancellationToken ct = default)
     {
-        if (!await gate.WaitAsync(TimeSpan.FromSeconds(timeoutSeconds), ct)) 
+        if (!await _gate.WaitAsync(TimeSpan.FromSeconds(_timeoutSeconds), ct)) 
             return PasswordHashResult.Unavailable;
         try
         {
-            var (memoryKb, iterations, parallelism) = defaults;
+            var (memoryKb, iterations, parallelism) = _defaults;
             var salt = RandomNumberGenerator.GetBytes(SaltLength);
             var hash = await DeriveAsync(
-                    Pepper(password, activePepper), 
+                    Pepper(password, _activePepper), 
                     salt, 
                     memoryKb, 
                     iterations, 
@@ -73,9 +73,9 @@ public sealed class Argon2idPasswordHasher(IConfiguration configuration) : IPass
                 );
             return PasswordHashResult.Succeeded(
                 $"$argon2id$v={ArgonVersion}$m={memoryKb},t={iterations},p={parallelism}$" + 
-                $"{Convert.ToBase64String(salt)}${Convert.ToBase64String(hash)}$p={activePepper}");
+                $"{Convert.ToBase64String(salt)}${Convert.ToBase64String(hash)}$p={_activePepper}");
         }
-        finally { gate.Release(); }
+        finally { _gate.Release(); }
     }
 
     public async Task<PasswordVerifyResult> VerifyAsync(
@@ -83,7 +83,7 @@ public sealed class Argon2idPasswordHasher(IConfiguration configuration) : IPass
         string? encodedHash, 
         CancellationToken ct = default)
     {
-        if (!await gate.WaitAsync(TimeSpan.FromSeconds(timeoutSeconds), ct))
+        if (!await _gate.WaitAsync(TimeSpan.FromSeconds(_timeoutSeconds), ct))
             return new(false, false, HashOutcome.Unavailable);
         try
         {
@@ -91,11 +91,11 @@ public sealed class Argon2idPasswordHasher(IConfiguration configuration) : IPass
             var salt = parsed?.Salt ?? RandomNumberGenerator.GetBytes(SaltLength);
             var expected = parsed?.Hash ?? Array.Empty<byte>();
             var (memoryKb, iterations, parallelism) = 
-                parsed?.Params ?? defaults;
+                parsed?.Params ?? _defaults;
             
             var actual = 
                 await DeriveAsync(
-                    Pepper(password, parsed?.Pepper ?? activePepper), 
+                    Pepper(password, parsed?.Pepper ?? _activePepper), 
                     salt, 
                     memoryKb, 
                     iterations, 
@@ -108,11 +108,11 @@ public sealed class Argon2idPasswordHasher(IConfiguration configuration) : IPass
             
             if (!valid || parsed is null) 
                 return new(false, false);
-            var stale = parsed.Pepper != activePepper
-                || parsed.Params != defaults;   // legacy parameters -> rehash on next successful login
+            var stale = parsed.Pepper != _activePepper
+                || parsed.Params != _defaults;   // legacy parameters -> rehash on next successful login
             return new(valid, stale);
         }
-        finally { gate.Release(); }
+        finally { _gate.Release(); }
     }
 
     private static async Task<byte[]> DeriveAsync(string password, byte[] salt, int memoryKb, int iterations, int parallelism, CancellationToken ct)
@@ -130,7 +130,7 @@ public sealed class Argon2idPasswordHasher(IConfiguration configuration) : IPass
 
     private string Pepper(string password, int version)
     {
-        var key = config[$"Auth:PasswordPepper:{version}"] ?? string.Empty;
+        var key = _config[$"Auth:PasswordPepper:{version}"] ?? string.Empty;
         return Convert.ToBase64String(HMACSHA256.HashData(Encoding.UTF8.GetBytes(key), Encoding.UTF8.GetBytes(password.Normalize(NormalizationForm.FormC))));
     }
 

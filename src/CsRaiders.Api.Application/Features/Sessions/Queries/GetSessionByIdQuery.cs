@@ -6,7 +6,7 @@ using Mediator;
 namespace CsRaiders.Api.Application.Features.Sessions.Queries;
 
 public sealed record GetSessionSummariesQuery(Guid UserId) 
-    : IRequest<IReadOnlyList<SessionSummary>>;
+    : IRequest<IReadOnlyList<SessionSummary>>, IReadOnlyMessage;
 
 public sealed class GetSessionSummariesQueryHandler(
     ISessionRepository sessions,

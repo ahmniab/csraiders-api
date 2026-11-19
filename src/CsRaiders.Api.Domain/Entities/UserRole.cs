@@ -8,6 +8,8 @@ public sealed class UserRole
     public Guid RoleId { get; set; }
     public Guid? GrantedBy { get; set; }
     public DateTimeOffset GrantedAt { get; set; }
+    public Role? Role { get; set; } 
+    public User? User { get; set; }
 }
 
 public sealed class UserPermission
