@@ -1,0 +1,172 @@
+# Load-testing stack for CsRaiders.Api.
+#
+#   tests/bench/scripts/run.sh up
+#   tests/bench/scripts/run.sh k6 login
+#   tests/bench/scripts/run.sh autocannon login
+#   tests/bench/scripts/run.sh down
+#
+# Resource ceilings are 2 vCPU / 2 GiB each for PostgreSQL and the API.
+# The load generator is intentionally NOT limited: a CPU-starved load generator
+# produces meaningless results.
+#
+# The API/seed connection string, Auth keys, and Site:Origin must agree.
+# Override seeded user count with BENCH_USER_COUNT (keep it exported for k6 runs).
+
+name: csraiders-bench
+
+x-common-env: &common-env
+  ConnectionStrings__Default: "Host=postgres;Port=5432;Database=csraiders_bench;Username=bench;Password=bench;Maximum Pool Size=50;Minimum Pool Size=10;Timeout=15;Command Timeout=30"
+  Auth__JwtSigningKey: "bench-jwt-signing-key-000000000000000000000000000000000000000000000000000000"
+  Auth__OtpHmacKey: "bench-otp-hmac-key-00000000000000000000000000000000000000000000000000000000"
+  Auth__PasswordPepper__1: "bench-password-pepper-000000000000000000000000000000000000000000"
+  Site__Origin: "http://bench.local"
+  # Argon2id cost factors. Keep these identical for the seeder and the API; the
+  # PHC string embeds them, so a mismatch only changes new hashes, not verification.
+  Crypto__Argon2__MemoryKb: "${CRYPTO_ARGON2_MEMORY_KB:-8192}"
+  Crypto__Argon2__Iterations: "${CRYPTO_ARGON2_ITERATIONS:-2}"
+  Crypto__Argon2__Parallelism: "${CRYPTO_ARGON2_PARALLELISM:-1}"
+
+services:
+  postgres:
+    image: postgres:17
+    shm_size: 256mb
+    environment:
+      POSTGRES_USER: bench
+      POSTGRES_PASSWORD: bench
+      POSTGRES_DB: csraiders_bench
+    command:
+      - postgres
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - effective_cache_size=1GB
+      - -c
+      - max_connections=120
+      - -c
+      - work_mem=4MB
+      - -c
+      - maintenance_work_mem=128MB
+      - -c
+      - max_wal_size=2GB
+      - -c
+      - min_wal_size=512MB
+      - -c
+      - checkpoint_timeout=15min
+      # Benchmark-only durability trade-off. Document it when you report results.
+      - -c
+      - synchronous_commit=off
+      - -c
+      - jit=off
+      - -c
+      - max_parallel_workers_per_gather=0
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - track_io_timing=on
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bench -d csraiders_bench"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    cpus: "2.0"
+    mem_limit: 2g
+    memswap_limit: 2g
+
+  # One-shot: migrate the schema, seed system roles, and insert benchmark users.
+  seed:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: seed
+    environment:
+      <<: *common-env
+      Bench__UserCount: "${BENCH_USER_COUNT:-20000}"
+      Bench__Password: "${BENCH_PASSWORD:-Bench-Passw0rd!}"
+      Bench__EmailPrefix: "${BENCH_EMAIL_PREFIX:-bench}"
+      Bench__EmailDomain: "${BENCH_EMAIL_DOMAIN:-bench.local}"
+      Bench__HashVariants: "64"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: runtime
+    environment:
+      <<: *common-env
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      # The load generator shares one source IP, so per-IP limits are effectively global.
+      RateLimit__PerMinutePerIp: "10000000"
+      RateLimit__RefreshPerMinutePerIp: "10000000"
+      Email__DeliveryMode: Console
+      EmailQueue__Capacity: "100000"
+      # Keep request logging (hardcoded in Program pipeline) but drop EF SQL and
+      # per-request application Information logs, which otherwise dominate CPU.
+      Logging__LogLevel__Microsoft: Warning
+      Logging__LogLevel__CsRaiders: Warning
+      # PipelineTiming defaults to enabled even in Production; it adds a per-request
+      # stopwatch tree and log line. Benchmark runs it off.
+      PipelineTiming__Enabled: "false"
+      DOTNET_gcServer: "1"
+      DOTNET_GCHeapHardLimit: "0x60000000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      seed:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-sS", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "2", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 15s
+    # ports:
+    #   - "127.0.0.1:8080:8080"   # uncomment for manual poking only
+    cpus: "2.0"
+    mem_limit: 2g
+    memswap_limit: 2g
+
+  k6:
+    image: grafana/k6:2.4.0
+    profiles: ["load"]
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      BASE_URL: http://api:8080
+      ORIGIN: http://bench.local
+      BENCH_PASSWORD: "${BENCH_PASSWORD:-Bench-Passw0rd!}"
+      BENCH_EMAIL_PREFIX: "${BENCH_EMAIL_PREFIX:-bench}"
+      BENCH_EMAIL_DOMAIN: "${BENCH_EMAIL_DOMAIN:-bench.local}"
+      BENCH_USER_COUNT: "${BENCH_USER_COUNT:-20000}"
+    volumes:
+      - ./bench/k6:/scripts:ro
+      - ./bench/results:/results
+
+  autocannon:
+    build: ./bench/autocannon
+    profiles: ["load"]
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      BASE_URL: http://api:8080
+      ORIGIN: http://bench.local
+      SCENARIO: login
+      BENCH_PASSWORD: "${BENCH_PASSWORD:-Bench-Passw0rd!}"
+      BENCH_EMAIL_PREFIX: "${BENCH_EMAIL_PREFIX:-bench}"
+      BENCH_EMAIL_DOMAIN: "${BENCH_EMAIL_DOMAIN:-bench.local}"
+      BENCH_USER_COUNT: "${BENCH_USER_COUNT:-20000}"
+    volumes:
+      - ./bench/results:/results
+
+volumes:
+  pgdata:

@@ -1,0 +1,13 @@
+.git
+.gitignore
+.idea
+.opencode
+.agents
+.specify
+specs
+docs
+tests
+**/bin
+**/obj
+**/TestResults
+*.md

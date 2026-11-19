@@ -222,7 +222,7 @@ public sealed class LoginCommandHandler(
                 var modified = tracked.Count(x => x.State == EntityState.Modified);
                 var deleted = tracked.Count(x => x.State == EntityState.Deleted);
 
-                logger.LogInformation(
+                logger.LogDebug(
                     "EF tracking: Total={Total}, Added={Added}, Modified={Modified}, Deleted={Deleted}",
                     tracked.Count, added, modified, deleted);
                 await db.SaveChangesAsync(ct);

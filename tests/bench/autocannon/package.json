@@ -1,0 +1,8 @@
+{
+  "name": "csraiders-autocannon-smoke",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "autocannon": "9.0.0"
+  }
+}
