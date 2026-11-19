@@ -24,7 +24,7 @@ public sealed class SecurityArchitectureTests
                          .Where(m => m.GetCustomAttributes(typeof(HttpMethodAttribute), true).Any()))
             {
                 Assert.True(controllerHasPolicy || HasAuthorization(method.GetCustomAttributes(true)),
-                    $"{controller.Name}.{method.Name} must declare AllowAnonymous, Authorize, or HasPermission.");
+                    $"{controller.Name}.{method.Name} must declare AllowAnonymous or Authorize.");
             }
         }
     }
@@ -56,6 +56,5 @@ public sealed class SecurityArchitectureTests
 
     private static bool HasAuthorization(IEnumerable<object> attributes) =>
         attributes.OfType<AllowAnonymousAttribute>().Any() ||
-        attributes.OfType<AuthorizeAttribute>().Any() ||
-        attributes.OfType<HasPermissionAttribute>().Any();
+        attributes.OfType<AuthorizeAttribute>().Any();
 }

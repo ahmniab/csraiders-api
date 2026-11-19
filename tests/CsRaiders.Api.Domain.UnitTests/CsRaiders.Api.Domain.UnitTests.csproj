@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\CsRaiders.Api.Domain\CsRaiders.Api.Domain.csproj" />
+    <ProjectReference Include="..\..\src\CsRaiders.Api.Application\CsRaiders.Api.Application.csproj" />
   </ItemGroup>
 
 </Project>

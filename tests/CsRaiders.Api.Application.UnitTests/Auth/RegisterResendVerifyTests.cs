@@ -1,3 +1,5 @@
+using CsRaiders.Api.Application.Extensions;
+using CsRaiders.Api.Application.Factories;
 using CsRaiders.Api.Domain.Constants;
 using CsRaiders.Api.Domain.Enums;
 using CsRaiders.Api.Domain.Entities;
@@ -15,7 +17,7 @@ public sealed class RegisterResendVerifyTests
     [Fact]
     public void Reissue_preserves_password_hash_and_replaces_code()
     {
-        var pending = PendingRegistration.Start(Mail, "Student", Hash.Replace("$ p", "$p"), [1, 2], null, Now);
+        var pending = PendingRegistrationFactory.Start(Mail, "Student", Hash.Replace("$ p", "$p"), [1, 2], null, Now);
         var result = pending.Reissue("Student", [3, 4], Now.AddMinutes(2));
 
         result.Should().Be(OtpSendResult.Sent);
@@ -27,7 +29,7 @@ public sealed class RegisterResendVerifyTests
     [Fact]
     public void Verify_decrements_attempts_for_each_invalid_code_and_then_exhausts()
     {
-        var pending = PendingRegistration.Start(Mail, "Student", Hash.Replace("$ p", "$p"), [9], null, Now);
+        var pending = PendingRegistrationFactory.Start(Mail, "Student", Hash.Replace("$ p", "$p"), [9], null, Now);
         for (var attempt = 0; attempt < AuthRules.OtpMaxAttempts; attempt++)
             pending.Verify([8], Now).Should().Be(OtpVerifyResult.Invalid);
 
@@ -38,7 +40,7 @@ public sealed class RegisterResendVerifyTests
     [Fact]
     public void Verify_success_is_available_before_expiry_and_pending_can_be_purged()
     {
-        var pending = PendingRegistration.Start(Mail, "Student", Hash.Replace("$ p", "$p"), [7], null, Now);
+        var pending = PendingRegistrationFactory.Start(Mail, "Student", Hash.Replace("$ p", "$p"), [7], null, Now);
         pending.Verify([7], Now.AddMinutes(1)).Should().Be(OtpVerifyResult.Verified);
         pending.Verify([7], Now.AddMinutes(11)).Should().Be(OtpVerifyResult.Expired);
     }

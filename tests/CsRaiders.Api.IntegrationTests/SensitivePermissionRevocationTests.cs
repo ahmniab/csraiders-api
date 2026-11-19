@@ -5,13 +5,17 @@ using CsRaiders.Api.Application.Common.Abstractions;
 using CsRaiders.Api.Application.Common.Interfaces.Repositories;
 using CsRaiders.Api.Application.Common.Interfaces.Security;
 using CsRaiders.Api.Application.Common.Models;
+using CsRaiders.Api.Application.Extensions;
+using CsRaiders.Api.Application.Factories;
 using CsRaiders.Api.Application.Features.Admin;
+using CsRaiders.Api.Application.Features.Sessions.Queries;
 using CsRaiders.Api.Domain.Constants;
 using CsRaiders.Api.Domain.Entities;
 using CsRaiders.Api.Domain.Enums;
 using CsRaiders.Api.Domain.ValueObjects;
-using CsRaiders.Api.Infrastructure.Services;
+using Mediator;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Caching.Distributed;
 using Xunit;
 
 namespace CsRaiders.Api.IntegrationTests;
@@ -23,27 +27,27 @@ public sealed class SensitivePermissionRevocationTests
 
     [Theory]
     [InlineData(PermissionCatalog.RoleManage)]
-    [InlineData(PermissionCatalog.PaymentRefund)]
+    [InlineData(PermissionCatalog.PaymentManage)]
     [InlineData(PermissionCatalog.UserWrite)]
     [InlineData(PermissionCatalog.SessionRevoke)]
     public async Task UpdateRolePermissions_revokes_active_sessions_when_sensitive_permission_is_removed(string sensitivePerm)
     {
-        var grantorRole = Role.Create("SuperAdmin", "superadmin", RoleScope.Staff, PermissionCatalog.All);
-        var targetRole = Role.Create("Operator", "operator", RoleScope.Staff, [PermissionCatalog.CourseRead, sensitivePerm]);
+        var grantorRole = RoleFactory.Create("SuperAdmin", "superadmin", RoleScope.Staff, PermissionCatalog.All);
+        var targetRole = RoleFactory.Create("Operator", "operator", RoleScope.Staff, [PermissionCatalog.CourseRead, sensitivePerm]);
 
-        var grantor = User.RegisterVerified(Email.Create("grantor@example.com"), "Grantor", Hash, Now);
+        var grantor = UserFactory.RegisterVerified(Email.Create("grantor@example.com"), "Grantor", Hash, Now);
         grantor.AssignRole(grantorRole.Id, null, Now);
 
-        var targetUser = User.RegisterVerified(Email.Create("target@example.com"), "Target User", Hash, Now);
+        var targetUser = UserFactory.RegisterVerified(Email.Create("target@example.com"), "Target User", Hash, Now);
         targetUser.AssignRole(targetRole.Id, null, Now);
 
-        var activeSession = Session.Open(targetUser.Id, new byte[32], "test-device", IPAddress.Loopback, null, false, false, Now);
+        var activeSession = SessionFactory.Open(targetUser.Id, new byte[32], "test-device", IPAddress.Loopback, null, false, false, Now);
 
         var users = new InMemoryUserRepo(grantor, targetUser);
         users.MapUserToRole(targetUser.Id, targetRole.Id);
         var roles = new InMemoryRoleRepo(grantorRole, targetRole);
         var sessions = new InMemorySessionRepo(activeSession);
-        var cache = new MemorySessionCacheHook();
+        var cache = new RecordingDistributedCache();
         var token = new TestRbacInvalidationToken();
         var clock = new TestClock(Now);
         var audit = new TestAudit();
@@ -65,22 +69,22 @@ public sealed class SensitivePermissionRevocationTests
     [Fact]
     public async Task UpdateRolePermissions_preserves_active_sessions_when_only_non_sensitive_permission_is_removed()
     {
-        var grantorRole = Role.Create("SuperAdmin", "superadmin", RoleScope.Staff, PermissionCatalog.All);
-        var targetRole = Role.Create("Editor", "editor", RoleScope.Staff, [PermissionCatalog.CourseRead, PermissionCatalog.CourseWrite]);
+        var grantorRole = RoleFactory.Create("SuperAdmin", "superadmin", RoleScope.Staff, PermissionCatalog.All);
+        var targetRole = RoleFactory.Create("Editor", "editor", RoleScope.Staff, [PermissionCatalog.CourseRead, PermissionCatalog.CourseWrite]);
 
-        var grantor = User.RegisterVerified(Email.Create("grantor@example.com"), "Grantor", Hash, Now);
+        var grantor = UserFactory.RegisterVerified(Email.Create("grantor@example.com"), "Grantor", Hash, Now);
         grantor.AssignRole(grantorRole.Id, null, Now);
 
-        var targetUser = User.RegisterVerified(Email.Create("target@example.com"), "Target User", Hash, Now);
+        var targetUser = UserFactory.RegisterVerified(Email.Create("target@example.com"), "Target User", Hash, Now);
         targetUser.AssignRole(targetRole.Id, null, Now);
 
-        var activeSession = Session.Open(targetUser.Id, new byte[32], "test-device", IPAddress.Loopback, null, false, false, Now);
+        var activeSession = SessionFactory.Open(targetUser.Id, new byte[32], "test-device", IPAddress.Loopback, null, false, false, Now);
 
         var users = new InMemoryUserRepo(grantor, targetUser);
         users.MapUserToRole(targetUser.Id, targetRole.Id);
         var roles = new InMemoryRoleRepo(grantorRole, targetRole);
         var sessions = new InMemorySessionRepo(activeSession);
-        var cache = new MemorySessionCacheHook();
+        var cache = new RecordingDistributedCache();
         var token = new TestRbacInvalidationToken();
         var clock = new TestClock(Now);
         var audit = new TestAudit();
@@ -100,25 +104,25 @@ public sealed class SensitivePermissionRevocationTests
     [Fact]
     public async Task UpdateRolePermissions_preserves_sessions_if_user_retains_sensitive_capability_via_another_role()
     {
-        var grantorRole = Role.Create("SuperAdmin", "superadmin", RoleScope.Staff, PermissionCatalog.All);
-        var roleA = Role.Create("RoleA", "role-a", RoleScope.Staff, [PermissionCatalog.RoleManage]);
-        var roleB = Role.Create("RoleB", "role-b", RoleScope.Staff, [PermissionCatalog.RoleManage, PermissionCatalog.CourseRead]);
+        var grantorRole = RoleFactory.Create("SuperAdmin", "superadmin", RoleScope.Staff, PermissionCatalog.All);
+        var roleA = RoleFactory.Create("RoleA", "role-a", RoleScope.Staff, [PermissionCatalog.RoleManage]);
+        var roleB = RoleFactory.Create("RoleB", "role-b", RoleScope.Staff, [PermissionCatalog.RoleManage, PermissionCatalog.CourseRead]);
 
-        var grantor = User.RegisterVerified(Email.Create("grantor@example.com"), "Grantor", Hash, Now);
+        var grantor = UserFactory.RegisterVerified(Email.Create("grantor@example.com"), "Grantor", Hash, Now);
         grantor.AssignRole(grantorRole.Id, null, Now);
 
-        var targetUser = User.RegisterVerified(Email.Create("target@example.com"), "Target User", Hash, Now);
+        var targetUser = UserFactory.RegisterVerified(Email.Create("target@example.com"), "Target User", Hash, Now);
         targetUser.AssignRole(roleA.Id, null, Now);
         targetUser.AssignRole(roleB.Id, null, Now);
 
-        var activeSession = Session.Open(targetUser.Id, new byte[32], "test-device", IPAddress.Loopback, null, false, false, Now);
+        var activeSession = SessionFactory.Open(targetUser.Id, new byte[32], "test-device", IPAddress.Loopback, null, false, false, Now);
 
         var users = new InMemoryUserRepo(grantor, targetUser);
         users.MapUserToRole(targetUser.Id, roleA.Id);
         users.MapUserToRole(targetUser.Id, roleB.Id);
         var roles = new InMemoryRoleRepo(grantorRole, roleA, roleB);
         var sessions = new InMemorySessionRepo(activeSession);
-        var cache = new MemorySessionCacheHook();
+        var cache = new RecordingDistributedCache();
         var token = new TestRbacInvalidationToken();
         var clock = new TestClock(Now);
         var audit = new TestAudit();
@@ -137,26 +141,26 @@ public sealed class SensitivePermissionRevocationTests
 
     [Theory]
     [InlineData(PermissionCatalog.RoleManage)]
-    [InlineData(PermissionCatalog.PaymentRefund)]
+    [InlineData(PermissionCatalog.PaymentManage)]
     [InlineData(PermissionCatalog.UserWrite)]
     [InlineData(PermissionCatalog.SessionRevoke)]
     public async Task SetUserPermissionOverride_revokes_sessions_when_sensitive_permission_is_denied(string sensitivePerm)
     {
-        var grantorRole = Role.Create("SuperAdmin", "superadmin", RoleScope.Staff, PermissionCatalog.All);
-        var role = Role.Create("StaffRole", "staff-role", RoleScope.Staff, [sensitivePerm, PermissionCatalog.CourseRead]);
+        var grantorRole = RoleFactory.Create("SuperAdmin", "superadmin", RoleScope.Staff, PermissionCatalog.All);
+        var role = RoleFactory.Create("StaffRole", "staff-role", RoleScope.Staff, [sensitivePerm, PermissionCatalog.CourseRead]);
 
-        var grantor = User.RegisterVerified(Email.Create("grantor@example.com"), "Grantor", Hash, Now);
+        var grantor = UserFactory.RegisterVerified(Email.Create("grantor@example.com"), "Grantor", Hash, Now);
         grantor.AssignRole(grantorRole.Id, null, Now);
 
-        var targetUser = User.RegisterVerified(Email.Create("target@example.com"), "Target User", Hash, Now);
+        var targetUser = UserFactory.RegisterVerified(Email.Create("target@example.com"), "Target User", Hash, Now);
         targetUser.AssignRole(role.Id, null, Now);
 
-        var activeSession = Session.Open(targetUser.Id, new byte[32], "test-device", IPAddress.Loopback, null, false, false, Now);
+        var activeSession = SessionFactory.Open(targetUser.Id, new byte[32], "test-device", IPAddress.Loopback, null, false, false, Now);
 
         var users = new InMemoryUserRepo(grantor, targetUser);
         var roles = new InMemoryRoleRepo(grantorRole, role);
         var sessions = new InMemorySessionRepo(activeSession);
-        var cache = new MemorySessionCacheHook();
+        var cache = new RecordingDistributedCache();
         var token = new TestRbacInvalidationToken();
         var clock = new TestClock(Now);
         var audit = new TestAudit();
@@ -176,21 +180,21 @@ public sealed class SensitivePermissionRevocationTests
     [Fact]
     public async Task SetUserPermissionOverride_preserves_sessions_when_non_sensitive_permission_is_denied()
     {
-        var grantorRole = Role.Create("SuperAdmin", "superadmin", RoleScope.Staff, PermissionCatalog.All);
-        var role = Role.Create("StaffRole", "staff-role", RoleScope.Staff, [PermissionCatalog.CourseRead]);
+        var grantorRole = RoleFactory.Create("SuperAdmin", "superadmin", RoleScope.Staff, PermissionCatalog.All);
+        var role = RoleFactory.Create("StaffRole", "staff-role", RoleScope.Staff, [PermissionCatalog.CourseRead]);
 
-        var grantor = User.RegisterVerified(Email.Create("grantor@example.com"), "Grantor", Hash, Now);
+        var grantor = UserFactory.RegisterVerified(Email.Create("grantor@example.com"), "Grantor", Hash, Now);
         grantor.AssignRole(grantorRole.Id, null, Now);
 
-        var targetUser = User.RegisterVerified(Email.Create("target@example.com"), "Target User", Hash, Now);
+        var targetUser = UserFactory.RegisterVerified(Email.Create("target@example.com"), "Target User", Hash, Now);
         targetUser.AssignRole(role.Id, null, Now);
 
-        var activeSession = Session.Open(targetUser.Id, new byte[32], "test-device", IPAddress.Loopback, null, false, false, Now);
+        var activeSession = SessionFactory.Open(targetUser.Id, new byte[32], "test-device", IPAddress.Loopback, null, false, false, Now);
 
         var users = new InMemoryUserRepo(grantor, targetUser);
         var roles = new InMemoryRoleRepo(grantorRole, role);
         var sessions = new InMemorySessionRepo(activeSession);
-        var cache = new MemorySessionCacheHook();
+        var cache = new RecordingDistributedCache();
         var token = new TestRbacInvalidationToken();
         var clock = new TestClock(Now);
         var audit = new TestAudit();
@@ -209,22 +213,22 @@ public sealed class SensitivePermissionRevocationTests
     [Fact]
     public async Task ElevateUserRoles_revokes_sessions_when_sensitive_capability_is_de_escalated()
     {
-        var grantorRole = Role.Create("SuperAdmin", "superadmin", RoleScope.Staff, PermissionCatalog.All);
-        var adminRole = Role.Create("Admin", "admin", RoleScope.Staff, [PermissionCatalog.RoleManage, PermissionCatalog.CourseRead]);
-        var tutorRole = Role.Create("Tutor", "tutor", RoleScope.Staff, [PermissionCatalog.CourseRead]);
+        var grantorRole = RoleFactory.Create("SuperAdmin", "superadmin", RoleScope.Staff, PermissionCatalog.All);
+        var adminRole = RoleFactory.Create("Admin", "admin", RoleScope.Staff, [PermissionCatalog.RoleManage, PermissionCatalog.CourseRead]);
+        var tutorRole = RoleFactory.Create("Tutor", "tutor", RoleScope.Staff, [PermissionCatalog.CourseRead]);
 
-        var grantor = User.RegisterVerified(Email.Create("grantor@example.com"), "Grantor", Hash, Now);
+        var grantor = UserFactory.RegisterVerified(Email.Create("grantor@example.com"), "Grantor", Hash, Now);
         grantor.AssignRole(grantorRole.Id, null, Now);
 
-        var targetUser = User.RegisterVerified(Email.Create("target@example.com"), "Target User", Hash, Now);
+        var targetUser = UserFactory.RegisterVerified(Email.Create("target@example.com"), "Target User", Hash, Now);
         targetUser.AssignRole(adminRole.Id, null, Now);
 
-        var activeSession = Session.Open(targetUser.Id, new byte[32], "test-device", IPAddress.Loopback, null, false, false, Now);
+        var activeSession = SessionFactory.Open(targetUser.Id, new byte[32], "test-device", IPAddress.Loopback, null, false, false, Now);
 
         var users = new InMemoryUserRepo(grantor, targetUser);
         var roles = new InMemoryRoleRepo(grantorRole, adminRole, tutorRole);
         var sessions = new InMemorySessionRepo(activeSession);
-        var cache = new MemorySessionCacheHook();
+        var cache = new RecordingDistributedCache();
         var token = new TestRbacInvalidationToken();
         var clock = new TestClock(Now);
         var audit = new TestAudit();
@@ -245,22 +249,22 @@ public sealed class SensitivePermissionRevocationTests
     [Fact]
     public async Task ElevateUserRoles_preserves_sessions_when_only_non_sensitive_roles_change()
     {
-        var grantorRole = Role.Create("SuperAdmin", "superadmin", RoleScope.Staff, PermissionCatalog.All);
-        var readerRole = Role.Create("Reader", "reader", RoleScope.Staff, [PermissionCatalog.CourseRead]);
-        var writerRole = Role.Create("Writer", "writer", RoleScope.Staff, [PermissionCatalog.CourseWrite]);
+        var grantorRole = RoleFactory.Create("SuperAdmin", "superadmin", RoleScope.Staff, PermissionCatalog.All);
+        var readerRole = RoleFactory.Create("Reader", "reader", RoleScope.Staff, [PermissionCatalog.CourseRead]);
+        var writerRole = RoleFactory.Create("Writer", "writer", RoleScope.Staff, [PermissionCatalog.CourseWrite]);
 
-        var grantor = User.RegisterVerified(Email.Create("grantor@example.com"), "Grantor", Hash, Now);
+        var grantor = UserFactory.RegisterVerified(Email.Create("grantor@example.com"), "Grantor", Hash, Now);
         grantor.AssignRole(grantorRole.Id, null, Now);
 
-        var targetUser = User.RegisterVerified(Email.Create("target@example.com"), "Target User", Hash, Now);
+        var targetUser = UserFactory.RegisterVerified(Email.Create("target@example.com"), "Target User", Hash, Now);
         targetUser.AssignRole(readerRole.Id, null, Now);
 
-        var activeSession = Session.Open(targetUser.Id, new byte[32], "test-device", IPAddress.Loopback, null, false, false, Now);
+        var activeSession = SessionFactory.Open(targetUser.Id, new byte[32], "test-device", IPAddress.Loopback, null, false, false, Now);
 
         var users = new InMemoryUserRepo(grantor, targetUser);
         var roles = new InMemoryRoleRepo(grantorRole, readerRole, writerRole);
         var sessions = new InMemorySessionRepo(activeSession);
-        var cache = new MemorySessionCacheHook();
+        var cache = new RecordingDistributedCache();
         var token = new TestRbacInvalidationToken();
         var clock = new TestClock(Now);
         var audit = new TestAudit();
@@ -279,22 +283,22 @@ public sealed class SensitivePermissionRevocationTests
     [Fact]
     public async Task UpdateRole_revokes_sessions_when_role_loses_sensitive_capability()
     {
-        var grantorRole = Role.Create("SuperAdmin", "superadmin", RoleScope.Staff, PermissionCatalog.All);
-        var targetRole = Role.Create("Manager", "manager", RoleScope.Staff, [PermissionCatalog.PaymentRefund, PermissionCatalog.CourseRead]);
+        var grantorRole = RoleFactory.Create("SuperAdmin", "superadmin", RoleScope.Staff, PermissionCatalog.All);
+        var targetRole = RoleFactory.Create("Manager", "manager", RoleScope.Staff, [PermissionCatalog.PaymentManage, PermissionCatalog.CourseRead]);
 
-        var grantor = User.RegisterVerified(Email.Create("grantor@example.com"), "Grantor", Hash, Now);
+        var grantor = UserFactory.RegisterVerified(Email.Create("grantor@example.com"), "Grantor", Hash, Now);
         grantor.AssignRole(grantorRole.Id, null, Now);
 
-        var targetUser = User.RegisterVerified(Email.Create("target@example.com"), "Target User", Hash, Now);
+        var targetUser = UserFactory.RegisterVerified(Email.Create("target@example.com"), "Target User", Hash, Now);
         targetUser.AssignRole(targetRole.Id, null, Now);
 
-        var activeSession = Session.Open(targetUser.Id, new byte[32], "test-device", IPAddress.Loopback, null, false, false, Now);
+        var activeSession = SessionFactory.Open(targetUser.Id, new byte[32], "test-device", IPAddress.Loopback, null, false, false, Now);
 
         var users = new InMemoryUserRepo(grantor, targetUser);
         users.MapUserToRole(targetUser.Id, targetRole.Id);
         var roles = new InMemoryRoleRepo(grantorRole, targetRole);
         var sessions = new InMemorySessionRepo(activeSession);
-        var cache = new MemorySessionCacheHook();
+        var cache = new RecordingDistributedCache();
         var token = new TestRbacInvalidationToken();
         var clock = new TestClock(Now);
         var audit = new TestAudit();
@@ -312,48 +316,107 @@ public sealed class SensitivePermissionRevocationTests
     }
 
     [Fact]
-    public async Task SessionValidationMiddleware_rejects_revoked_session_within_5_seconds()
+    public async Task SessionValidationMiddleware_allows_an_active_session()
     {
         var sessionId = Guid.NewGuid();
-        var userId = Guid.NewGuid();
-
-        var reader = new TestSessionStatusReader();
-        // Session was active initially
-        reader.Status = new SessionStatus(sessionId, userId, DateTimeOffset.UtcNow.AddMinutes(30), DateTimeOffset.UtcNow.AddMinutes(15), Revoked: false);
-
-        var cacheHook = new MemorySessionCacheHook();
-        var metrics = new TestAuthMetrics();
+        var status = new SessionStatus
+        {
+            SessionId = sessionId,
+            UserId = Guid.NewGuid(),
+            ExpiresAt = Now.AddMinutes(30),
+            IdleExpiresAt = Now.AddMinutes(15)
+        };
 
         var nextCalled = false;
-        RequestDelegate next = _ =>
+        var middleware = new SessionValidationMiddleware(_ =>
         {
             nextCalled = true;
             return Task.CompletedTask;
-        };
+        });
 
-        var middleware = new SessionValidationMiddleware(next);
+        var context = CreateHttpContext(sessionId);
 
-        var context1 = CreateHttpContext(sessionId);
-        await middleware.InvokeAsync(context1, reader, cacheHook, metrics);
+        await middleware.InvokeAsync(context, new FakeMediator(_ => status), new TestClock(Now));
 
         Assert.True(nextCalled);
-        Assert.Equal(StatusCodes.Status200OK, context1.Response.StatusCode);
+        Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
+    }
 
-        // Now an administrative de-escalation revokes the session
-        reader.Status = new SessionStatus(sessionId, userId, DateTimeOffset.UtcNow.AddMinutes(30), DateTimeOffset.UtcNow.AddMinutes(15), Revoked: true);
-        cacheHook.Evict(sessionId);
+    [Fact]
+    public async Task SessionValidationMiddleware_rejects_a_revoked_session_with_a_problem_response()
+    {
+        var sessionId = Guid.NewGuid();
+        var status = new SessionStatus
+        {
+            SessionId = sessionId,
+            UserId = Guid.NewGuid(),
+            ExpiresAt = Now.AddMinutes(30),
+            IdleExpiresAt = Now.AddMinutes(15),
+            RevokedAt = Now.AddMinutes(-1)
+        };
 
-        // Within 5 seconds (when the middleware 5-second cache TTL expires):
-        // Simulate reading after 5.1 seconds:
-        await Task.Delay(5100);
+        var nextCalled = false;
+        var middleware = new SessionValidationMiddleware(_ =>
+        {
+            nextCalled = true;
+            return Task.CompletedTask;
+        });
 
-        nextCalled = false;
-        var context2 = CreateHttpContext(sessionId);
-        await middleware.InvokeAsync(context2, reader, cacheHook, metrics);
+        var context = CreateHttpContext(sessionId);
+
+        await middleware.InvokeAsync(context, new FakeMediator(_ => status), new TestClock(Now));
 
         Assert.False(nextCalled);
-        Assert.Equal(StatusCodes.Status401Unauthorized, context2.Response.StatusCode);
-        Assert.True(cacheHook.WasEvicted(sessionId));
+        Assert.Equal(StatusCodes.Status401Unauthorized, context.Response.StatusCode);
+        Assert.StartsWith("application/json", context.Response.ContentType);
+
+        context.Response.Body.Position = 0;
+        var body = await new StreamReader(context.Response.Body).ReadToEndAsync();
+        Assert.Contains("session_superseded", body);
+    }
+
+    [Fact]
+    public async Task SessionValidationMiddleware_passes_through_when_the_session_claim_is_missing()
+    {
+        var nextCalled = false;
+        var middleware = new SessionValidationMiddleware(_ =>
+        {
+            nextCalled = true;
+            return Task.CompletedTask;
+        });
+
+        var context = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim("sub", Guid.NewGuid().ToString())], "TestAuth"))
+        };
+        context.Response.Body = new MemoryStream();
+
+        await middleware.InvokeAsync(context, new FakeMediator(_ => throw new InvalidOperationException("should not read session")), new TestClock(Now));
+
+        Assert.True(nextCalled);
+        Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Session_status_query_caches_reads_and_reflects_revocation_after_cache_eviction()
+    {
+        var session = SessionFactory.Open(Guid.NewGuid(), new byte[32], "device", IPAddress.Loopback, null, false, false, Now);
+        var sessions = new InMemorySessionRepo(session);
+        var cache = new RecordingDistributedCache();
+        var handler = new GetSessionStatusByIdQueryHandler(cache, sessions);
+        var query = new GetSessionStatusByIdQuery(session.Id.ToString());
+
+        var first = await handler.Handle(query, CancellationToken.None);
+        Assert.Null(first.RevokedAt);
+        Assert.Contains($"sid:{session.Id}", cache.Store.Keys);
+
+        session.Revoke(SessionRevokeReason.AdminRevoked, Now);
+        await cache.RemoveAsync($"sid:{session.Id}");
+
+        var second = await handler.Handle(query, CancellationToken.None);
+        Assert.Equal(Now, second.RevokedAt);
+        Assert.False(second.IsActive(Now));
     }
 
     private static DefaultHttpContext CreateHttpContext(Guid sessionId)
@@ -362,25 +425,43 @@ public sealed class SensitivePermissionRevocationTests
         var identity = new ClaimsIdentity(
         [
             new Claim("sub", Guid.NewGuid().ToString()),
-            new Claim("sid", sessionId.ToString()),
-            new Claim("perms", "1048575")
+            new Claim("sid", sessionId.ToString())
         ], "TestAuth");
         context.User = new ClaimsPrincipal(identity);
         context.Response.Body = new MemoryStream();
         return context;
     }
 
-    private sealed class TestSessionStatusReader : ISessionStatusReader
+    private sealed class FakeMediator(Func<object, SessionStatus> readStatus) : IMediator
     {
-        public SessionStatus? Status { get; set; }
-        public Task<SessionStatus?> ReadAsync(Guid sessionId, CancellationToken ct = default) =>
-            Task.FromResult(Status);
-    }
+        public ValueTask<TResponse> Send<TResponse>(IRequest<TResponse> request, CancellationToken ct = default)
+            => ValueTask.FromResult((TResponse)(object)readStatus(request));
 
-    private sealed class TestAuthMetrics : IAuthMetricsRecorder
-    {
-        public void Increment(string counter) { }
-        public IReadOnlyDictionary<string, long> Snapshot() => new Dictionary<string, long>();
+        public ValueTask<TResponse> Send<TResponse>(ICommand<TResponse> command, CancellationToken ct = default)
+            => ValueTask.FromResult((TResponse)(object)readStatus(command));
+
+        public ValueTask<TResponse> Send<TResponse>(IQuery<TResponse> query, CancellationToken ct = default)
+            => ValueTask.FromResult((TResponse)(object)readStatus(query));
+
+        public ValueTask<object?> Send(object message, CancellationToken ct = default)
+            => ValueTask.FromResult<object?>(readStatus(message));
+
+        public IAsyncEnumerable<TResponse> CreateStream<TResponse>(IStreamQuery<TResponse> query, CancellationToken ct = default)
+            => throw new NotSupportedException();
+
+        public IAsyncEnumerable<TResponse> CreateStream<TResponse>(IStreamRequest<TResponse> request, CancellationToken ct = default)
+            => throw new NotSupportedException();
+
+        public IAsyncEnumerable<TResponse> CreateStream<TResponse>(IStreamCommand<TResponse> command, CancellationToken ct = default)
+            => throw new NotSupportedException();
+
+        public IAsyncEnumerable<object> CreateStream(object message, CancellationToken ct = default)
+            => throw new NotSupportedException();
+
+        public ValueTask Publish<TNotification>(TNotification notification, CancellationToken ct = default)
+            where TNotification : INotification => ValueTask.CompletedTask;
+
+        public ValueTask Publish(object notification, CancellationToken ct = default) => ValueTask.CompletedTask;
     }
 
     private sealed class TestClock(DateTimeOffset now) : IPlatformClock
@@ -404,6 +485,35 @@ public sealed class SensitivePermissionRevocationTests
     {
         public Task WriteAsync(string eventName, Guid? userId = null, Email? email = null, IPAddress? ip = null, object? details = null, CancellationToken ct = default) =>
             Task.CompletedTask;
+    }
+
+    private sealed class RecordingDistributedCache : IDistributedCache
+    {
+        public Dictionary<string, byte[]> Store { get; } = [];
+        public List<string> RemovedKeys { get; } = [];
+
+        public bool WasEvicted(Guid sessionId) => RemovedKeys.Contains($"sid:{sessionId}");
+
+        public byte[]? Get(string key) => Store.TryGetValue(key, out var value) ? value : null;
+        public Task<byte[]?> GetAsync(string key, CancellationToken token = default) => Task.FromResult(Get(key));
+        public void Set(string key, byte[] value, DistributedCacheEntryOptions options) => Store[key] = value;
+        public Task SetAsync(string key, byte[] value, DistributedCacheEntryOptions options, CancellationToken token = default)
+        {
+            Set(key, value, options);
+            return Task.CompletedTask;
+        }
+        public void Refresh(string key) { }
+        public Task RefreshAsync(string key, CancellationToken token = default) => Task.CompletedTask;
+        public void Remove(string key)
+        {
+            RemovedKeys.Add(key);
+            Store.Remove(key);
+        }
+        public Task RemoveAsync(string key, CancellationToken token = default)
+        {
+            Remove(key);
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class InMemorySessionRepo(params Session[] initial) : ISessionRepository
@@ -477,6 +587,8 @@ public sealed class SensitivePermissionRevocationTests
             Task.FromResult(_users.SingleOrDefault(u => u.Id == id));
         public Task<User?> FindByIdWithPermissionsAsync(Guid id, bool track = false, CancellationToken ct = default) =>
             Task.FromResult(_users.SingleOrDefault(u => u.Id == id));
+        public Task<User?> FindByEmailWithPermissionsAsync(Email email, bool track = false, CancellationToken ct = default) =>
+            Task.FromResult(_users.SingleOrDefault(u => u.Email == email));
         public Task<(bool HasSessionMulti, bool IsStudent)> GetAuthenticationPolicyAsync(Guid userId, CancellationToken ct = default) =>
             Task.FromResult((false, false));
         public Task<IReadOnlyList<Guid>> FindIdsByRoleIdAsync(Guid roleId, CancellationToken ct = default) =>

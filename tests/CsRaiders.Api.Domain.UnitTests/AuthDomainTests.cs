@@ -1,3 +1,5 @@
+using CsRaiders.Api.Application.Extensions;
+using CsRaiders.Api.Application.Factories;
 using CsRaiders.Api.Domain.Constants;
 using CsRaiders.Api.Domain.Entities;
 using CsRaiders.Api.Domain.Enums;
@@ -26,8 +28,8 @@ public class AuthDomainTests
     [Fact]                                                      // FR-62.2: DENY wins over a role grant
     public void Deny_override_beats_role_grant()
     {
-        var role = Role.Create("Staff", "staff", RoleScope.Staff, [PermissionCatalog.SessionMulti, PermissionCatalog.CourseRead]);
-        var user = User.RegisterVerified(Mail, "Ann", Phc, Now);
+        var role = RoleFactory.Create("Staff", "staff", RoleScope.Staff, [PermissionCatalog.SessionMulti, PermissionCatalog.CourseRead]);
+        var user = UserFactory.RegisterVerified(Mail, "Ann", Phc, Now);
         user.SetPermissionOverride(PermissionCatalog.SessionMulti, PermissionEffect.Deny, Guid.NewGuid(), Now);
 
         var effective = EffectivePermissions.Resolve([role], user.PermissionOverrides);
@@ -38,7 +40,7 @@ public class AuthDomainTests
     [Fact]                                                      // SEC-08
     public void Replaying_a_rotated_refresh_token_revokes_the_session()
     {
-        var s = Session.Open(Guid.NewGuid(), Hash(1), "fp", null, null, true, true, Now);
+        var s = SessionFactory.Open(Guid.NewGuid(), Hash(1), "fp", null, null, true, true, Now);
 
         s.TryRotate(Hash(1), Hash(2), "fp", Now).Should().Be(RefreshOutcome.Rotated);
         s.TryRotate(Hash(1), Hash(3), "fp", Now.AddSeconds(16)).Should().Be(RefreshOutcome.ReuseDetected);
@@ -50,7 +52,7 @@ public class AuthDomainTests
     [Fact]
     public void Retired_refresh_token_rotates_again_inside_grace_window()
     {
-        var s = Session.Open(Guid.NewGuid(), Hash(1), "fp", null, null, true, true, Now);
+        var s = SessionFactory.Open(Guid.NewGuid(), Hash(1), "fp", null, null, true, true, Now);
 
         s.TryRotate(Hash(1), Hash(2), "fp", Now).Should().Be(RefreshOutcome.Rotated);
         s.TryRotate(Hash(1), Hash(3), "fp", Now.AddSeconds(15)).Should().Be(RefreshOutcome.Rotated);
@@ -60,7 +62,7 @@ public class AuthDomainTests
     [Fact]
     public void Retired_refresh_token_after_grace_compromises_session()
     {
-        var s = Session.Open(Guid.NewGuid(), Hash(1), "fp", null, null, true, true, Now);
+        var s = SessionFactory.Open(Guid.NewGuid(), Hash(1), "fp", null, null, true, true, Now);
 
         s.TryRotate(Hash(1), Hash(2), "fp", Now).Should().Be(RefreshOutcome.Rotated);
         s.TryRotate(Hash(1), Hash(3), "fp", Now.AddSeconds(16)).Should().Be(RefreshOutcome.ReuseDetected);
@@ -70,7 +72,7 @@ public class AuthDomainTests
     [Fact]                                                      // FR-64
     public void Tenth_failure_locks_and_the_lock_expires()
     {
-        var a = LoginAttempt.For(Mail, Now);
+        var a = LoginAttemptFactory.For(Mail, Now);
         for (var i = 1; i <= 9; i++) a.RegisterFailure(Now.AddSeconds(i), null, null);
 
         a.RegisterFailure(Now.AddSeconds(10), null, null).Should().Be(LoginFailureOutcome.LockedOut);
@@ -83,7 +85,7 @@ public class AuthDomainTests
     [Fact]                                                      // SEC-03
     public void Sixth_otp_attempt_is_rejected_even_if_correct()
     {
-        var p = PendingRegistration.Start(Mail, "Ann", Phc, Hash(1), null, Now);
+        var p = PendingRegistrationFactory.Start(Mail, "Ann", Phc, Hash(1), null, Now);
 
         for (var i = 0; i < 5; i++) p.Verify(Hash(9), Now).Should().Be(OtpVerifyResult.Invalid);
 
@@ -93,7 +95,7 @@ public class AuthDomainTests
     [Fact]                                                      // SEC-01 / Bug-1 guard
     public void Plaintext_passwords_cannot_reach_an_entity()
     {
-        var act = () => User.RegisterVerified(Mail, "Ann", "hunter2", Now);
+        var act = () => UserFactory.RegisterVerified(Mail, "Ann", "hunter2", Now);
         act.Should().Throw<DomainException>().Which.Code.Should().Be("password_not_hashed");
 
         typeof(PendingRegistration).GetProperties().Select(p => p.Name)

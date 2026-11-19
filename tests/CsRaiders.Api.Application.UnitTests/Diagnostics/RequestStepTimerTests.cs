@@ -2,6 +2,7 @@ using CsRaiders.Api.Application.Common.Abstractions;
 using CsRaiders.Api.Application.Common.Diagnostics;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace CsRaiders.Api.Application.UnitTests.Diagnostics;

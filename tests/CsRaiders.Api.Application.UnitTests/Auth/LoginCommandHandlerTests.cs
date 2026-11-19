@@ -5,6 +5,8 @@ using CsRaiders.Api.Application.Common.Interfaces;
 using CsRaiders.Api.Application.Common.Interfaces.Repositories;
 using CsRaiders.Api.Application.Common.Interfaces.Security;
 using CsRaiders.Api.Application.Common.Models;
+using CsRaiders.Api.Application.Extensions;
+using CsRaiders.Api.Application.Factories;
 using CsRaiders.Api.Application.Features.Auth.Commands.Login;
 using CsRaiders.Api.Domain.Constants;
 using CsRaiders.Api.Domain.Entities;
@@ -13,7 +15,9 @@ using CsRaiders.Api.Domain.ValueObjects;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
-using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace CsRaiders.Api.Application.UnitTests.Auth;
@@ -25,14 +29,15 @@ public sealed class LoginCommandHandlerTests
     private const string Hash = "$argon2id$v=19$m=19456,t=2,p=1$c2FsdA==$dGFn";
 
     [Fact]
-    public async Task Handle_resolves_role_permissions_populates_perms_mask_cache_and_passes_bitmask_to_token_service()
+    public async Task Handle_resolves_role_permissions_passes_them_to_token_service_and_caches_by_session()
     {
-        var role = Role.Create("Manager", "manager", RoleScope.Staff, [PermissionCatalog.CourseRead, PermissionCatalog.RoleManage]);
-        var user = User.RegisterVerified(Mail, "Manager User", Hash, Now);
+        var role = RoleFactory.Create("Manager", "manager", RoleScope.Staff,
+            [PermissionCatalog.CourseRead, PermissionCatalog.RoleManage]);
+        var user = UserFactory.RegisterVerified(Mail, "Manager User", Hash, Now);
         user.AssignRole(role.Id, null, Now);
 
         var tokens = new TestTokenService();
-        var cache = new MemoryCache(new MemoryCacheOptions());
+        var cache = new RecordingDistributedCache();
         var invalidation = new TestRbacInvalidationToken();
 
         var handler = CreateHandler(user, [role], tokens, cache, invalidation);
@@ -41,27 +46,27 @@ public sealed class LoginCommandHandlerTests
         var result = await handler.Handle(command, CancellationToken.None);
 
         result.Succeeded.Should().BeTrue();
-        tokens.LastBitmask.Should().NotBeNull();
+        tokens.LastPermissions.Should().NotBeNull();
+        tokens.LastPermissions.Should().BeEquivalentTo([PermissionCatalog.CourseRead, PermissionCatalog.RoleManage]);
+        tokens.LastSessionId.Should().Be(result.SessionId);
 
-        ulong expectedBitmask = (1UL << 0) | (1UL << 9); // CourseRead (bit 0) | RoleManage (bit 9)
-        tokens.LastBitmask.Should().Be(expectedBitmask);
-
-        var cacheKey = $"perms_mask:{user.Id:D}";
-        cache.TryGetValue(cacheKey, out ulong cachedBitmask).Should().BeTrue();
-        cachedBitmask.Should().Be(expectedBitmask);
+        var cacheKey = $"prems:{result.SessionId}";
+        var cached = JsonSerializer.Deserialize<HashSet<string>>(await cache.GetStringAsync(cacheKey));
+        cached.Should().BeEquivalentTo([PermissionCatalog.CourseRead, PermissionCatalog.RoleManage]);
     }
 
     [Fact]
     public async Task Handle_applies_permission_overrides_to_role_permissions_accurately()
     {
-        var role = Role.Create("Tutor", "tutor", RoleScope.Staff, [PermissionCatalog.CourseRead, PermissionCatalog.CourseWrite]);
-        var user = User.RegisterVerified(Mail, "Tutor User", Hash, Now);
+        var role = RoleFactory.Create("Tutor", "tutor", RoleScope.Staff,
+            [PermissionCatalog.CourseRead, PermissionCatalog.CourseWrite]);
+        var user = UserFactory.RegisterVerified(Mail, "Tutor User", Hash, Now);
         user.AssignRole(role.Id, null, Now);
         user.SetPermissionOverride(PermissionCatalog.CourseWrite, PermissionEffect.Deny, Guid.NewGuid(), Now);
-        user.SetPermissionOverride(PermissionCatalog.PaymentRefund, PermissionEffect.Grant, Guid.NewGuid(), Now);
+        user.SetPermissionOverride(PermissionCatalog.PaymentManage, PermissionEffect.Grant, Guid.NewGuid(), Now);
 
         var tokens = new TestTokenService();
-        var cache = new MemoryCache(new MemoryCacheOptions());
+        var cache = new RecordingDistributedCache();
         var invalidation = new TestRbacInvalidationToken();
 
         var handler = CreateHandler(user, [role], tokens, cache, invalidation);
@@ -70,23 +75,21 @@ public sealed class LoginCommandHandlerTests
         var result = await handler.Handle(command, CancellationToken.None);
 
         result.Succeeded.Should().BeTrue();
+        tokens.LastPermissions.Should().BeEquivalentTo(
+            [PermissionCatalog.CourseRead, PermissionCatalog.PaymentManage]);
 
-        // Effective: CourseRead (bit 0) and PaymentRefund (bit 12), with CourseWrite (bit 1) denied
-        ulong expectedBitmask = (1UL << 0) | (1UL << 12);
-        tokens.LastBitmask.Should().Be(expectedBitmask);
-
-        var cacheKey = $"perms_mask:{user.Id:D}";
-        cache.TryGetValue(cacheKey, out ulong cachedBitmask).Should().BeTrue();
-        cachedBitmask.Should().Be(expectedBitmask);
+        var cached = JsonSerializer.Deserialize<HashSet<string>>(
+            await cache.GetStringAsync($"prems:{result.SessionId}"));
+        cached.Should().BeEquivalentTo([PermissionCatalog.CourseRead, PermissionCatalog.PaymentManage]);
     }
 
     [Fact]
-    public async Task Handle_with_no_roles_or_permissions_emits_and_caches_zero_bitmask()
+    public async Task Handle_with_no_roles_or_permissions_passes_empty_permission_set()
     {
-        var user = User.RegisterVerified(Mail, "Plain User", Hash, Now);
+        var user = UserFactory.RegisterVerified(Mail, "Plain User", Hash, Now);
 
         var tokens = new TestTokenService();
-        var cache = new MemoryCache(new MemoryCacheOptions());
+        var cache = new RecordingDistributedCache();
         var invalidation = new TestRbacInvalidationToken();
 
         var handler = CreateHandler(user, [], tokens, cache, invalidation);
@@ -95,44 +98,19 @@ public sealed class LoginCommandHandlerTests
         var result = await handler.Handle(command, CancellationToken.None);
 
         result.Succeeded.Should().BeTrue();
-        tokens.LastBitmask.Should().Be(0UL);
+        tokens.LastPermissions.Should().BeEmpty();
 
-        var cacheKey = $"perms_mask:{user.Id:D}";
-        cache.TryGetValue(cacheKey, out ulong cachedBitmask).Should().BeTrue();
-        cachedBitmask.Should().Be(0UL);
-    }
-
-    [Fact]
-    public async Task Cache_entry_is_evicted_when_invalidation_token_is_triggered()
-    {
-        var role = Role.Create("Student", "student", RoleScope.Student, [PermissionCatalog.CourseRead]);
-        var user = User.RegisterVerified(Mail, "Student User", Hash, Now);
-        user.AssignRole(role.Id, null, Now);
-
-        var tokens = new TestTokenService();
-        var cache = new MemoryCache(new MemoryCacheOptions());
-        var invalidation = new TestRbacInvalidationToken();
-
-        var handler = CreateHandler(user, [role], tokens, cache, invalidation);
-
-        var command = new LoginCommand("user@example.com", "Password123!", IPAddress.Loopback, "fingerprint-1", "test-agent");
-        await handler.Handle(command, CancellationToken.None);
-
-        var cacheKey = $"perms_mask:{user.Id:D}";
-        cache.TryGetValue(cacheKey, out ulong _).Should().BeTrue();
-
-        // Invalidate RBAC token
-        invalidation.Invalidate();
-
-        cache.TryGetValue(cacheKey, out ulong _).Should().BeFalse("Cache entry should be evicted when invalidation token is cancelled");
+        var cached = JsonSerializer.Deserialize<HashSet<string>>(
+            await cache.GetStringAsync($"prems:{result.SessionId}"));
+        cached.Should().BeEmpty();
     }
 
     [Fact]
     public async Task Handle_with_invalid_credentials_does_not_issue_token_or_populate_cache()
     {
-        var user = User.RegisterVerified(Mail, "User", Hash, Now);
+        var user = UserFactory.RegisterVerified(Mail, "User", Hash, Now);
         var tokens = new TestTokenService();
-        var cache = new MemoryCache(new MemoryCacheOptions());
+        var cache = new RecordingDistributedCache();
         var invalidation = new TestRbacInvalidationToken();
 
         var handler = CreateHandler(user, [], tokens, cache, invalidation, passwordValid: false);
@@ -141,17 +119,15 @@ public sealed class LoginCommandHandlerTests
         var result = await handler.Handle(command, CancellationToken.None);
 
         result.Succeeded.Should().BeFalse();
-        tokens.LastBitmask.Should().BeNull();
-
-        var cacheKey = $"perms_mask:{user.Id:D}";
-        cache.TryGetValue(cacheKey, out ulong _).Should().BeFalse();
+        tokens.LastPermissions.Should().BeNull();
+        cache.Store.Keys.Should().NotContain(key => key.StartsWith("prems:", StringComparison.Ordinal));
     }
 
     private static LoginCommandHandler CreateHandler(
         User user,
         Role[] roles,
         TestTokenService tokens,
-        IMemoryCache cache,
+        IDistributedCache cache,
         IRbacInvalidationToken invalidation,
         bool passwordValid = true)
     {
@@ -164,7 +140,6 @@ public sealed class LoginCommandHandlerTests
         var audit = new TestAuditRepo();
         var clock = new TestClock(Now);
         var db = new TestDbContext();
-        var sessionCache = new TestSessionCache();
 
         return new LoginCommandHandler(
             usersRepo,
@@ -176,24 +151,24 @@ public sealed class LoginCommandHandlerTests
             audit,
             clock,
             db,
-            sessionCache,
-            rolesRepo,
             cache,
-            invalidation);
+            rolesRepo,
+            invalidation,
+            NullLogger<LoginCommandHandler>.Instance);
     }
 
     private sealed class TestTokenService : ITokenService
     {
         public Guid? LastUserId { get; private set; }
         public Guid? LastSessionId { get; private set; }
-        public ulong? LastBitmask { get; private set; }
+        public IReadOnlySet<string>? LastPermissions { get; private set; }
         public DateTimeOffset? LastNow { get; private set; }
 
-        public string CreateAccessToken(Guid userId, Guid sessionId, ulong permissionsBitmask, DateTimeOffset now)
+        public string CreateAccessToken(Guid userId, Guid sessionId, IReadOnlySet<string> effectivePerms, DateTimeOffset now)
         {
             LastUserId = userId;
             LastSessionId = sessionId;
-            LastBitmask = permissionsBitmask;
+            LastPermissions = effectivePerms;
             LastNow = now;
             return "mock_access_token";
         }
@@ -208,6 +183,36 @@ public sealed class LoginCommandHandlerTests
 
         public byte[] HashRefreshToken(string token) =>
             System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token));
+    }
+
+    private sealed class RecordingDistributedCache : IDistributedCache
+    {
+        public Dictionary<string, byte[]> Store { get; } = [];
+
+        public byte[]? Get(string key) => Store.TryGetValue(key, out var value) ? value : null;
+
+        public Task<byte[]?> GetAsync(string key, CancellationToken token = default) =>
+            Task.FromResult(Get(key));
+
+        public void Set(string key, byte[] value, DistributedCacheEntryOptions options) => Store[key] = value;
+
+        public Task SetAsync(string key, byte[] value, DistributedCacheEntryOptions options, CancellationToken token = default)
+        {
+            Set(key, value, options);
+            return Task.CompletedTask;
+        }
+
+        public void Refresh(string key) { }
+
+        public Task RefreshAsync(string key, CancellationToken token = default) => Task.CompletedTask;
+
+        public void Remove(string key) => Store.Remove(key);
+
+        public Task RemoveAsync(string key, CancellationToken token = default)
+        {
+            Remove(key);
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class TestRbacInvalidationToken : IRbacInvalidationToken
@@ -232,6 +237,8 @@ public sealed class LoginCommandHandlerTests
             Task.FromResult(user?.Id == id ? user : null);
         public Task<User?> FindByIdWithPermissionsAsync(Guid id, bool track = false, CancellationToken ct = default) =>
             Task.FromResult(user?.Id == id ? user : null);
+        public Task<User?> FindByEmailWithPermissionsAsync(Email email, bool track = false, CancellationToken ct = default) =>
+            Task.FromResult(user);
         public Task<(bool HasSessionMulti, bool IsStudent)> GetAuthenticationPolicyAsync(Guid userId, CancellationToken ct = default) =>
             Task.FromResult((false, false));
         public Task<IReadOnlyList<Guid>> FindIdsByRoleIdAsync(Guid roleId, CancellationToken ct = default) =>
@@ -328,13 +335,13 @@ public sealed class LoginCommandHandlerTests
         public DateTimeOffset UtcNow => now;
     }
 
-    private sealed class TestSessionCache : ISessionCacheHook
-    {
-        public void Evict(Guid sessionId) { }
-    }
-
     private sealed class TestDbContext : IApplicationDbContext
     {
+        private readonly DbContext _inner = new(
+            new DbContextOptionsBuilder<DbContext>()
+                .UseNpgsql("Host=localhost;Database=test")
+                .Options);
+
         public DbSet<User> Users => null!;
         public DbSet<Role> Roles => null!;
         public DbSet<UserRole> UserRoles => null!;
@@ -345,7 +352,8 @@ public sealed class LoginCommandHandlerTests
         public DbSet<PasswordResetToken> PasswordResetTokens => null!;
         public DbSet<SecurityEvent> SecurityEvents => null!;
         public DbSet<AppSetting> AppSettings => null!;
-        public EntityEntry Entry(object entity) => throw new NotSupportedException();
+        public ChangeTracker ChangeTracker => _inner.ChangeTracker;
+        public EntityEntry Entry(object entity) => _inner.Entry(entity);
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1);
     }
 }

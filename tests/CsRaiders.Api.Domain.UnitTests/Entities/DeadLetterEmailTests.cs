@@ -1,3 +1,4 @@
+using CsRaiders.Api.Application.Factories;
 using CsRaiders.Api.Domain.Entities;
 using FluentAssertions;
 
@@ -9,19 +10,17 @@ public class DeadLetterEmailTests
     public void Create_initializes_all_properties_correctly()
     {
         var failedAt = new DateTimeOffset(2026, 11, 14, 12, 0, 0, TimeSpan.Zero);
-        var customId = Guid.NewGuid();
 
-        var deadLetter = DeadLetterEmail.Create(
+        var deadLetter = DeadLetterEmailFactory.Create(
             "student@example.com",
             "Verify your account",
             "registration_otp",
             "Connection refused (SMTP server unreachable)",
             3,
             "corr-456",
-            failedAt,
-            customId);
+            failedAt);
 
-        deadLetter.Id.Should().Be(customId);
+        deadLetter.Id.Should().NotBeEmpty();
         deadLetter.Recipient.Should().Be("student@example.com");
         deadLetter.Subject.Should().Be("Verify your account");
         deadLetter.Purpose.Should().Be("registration_otp");
@@ -32,10 +31,10 @@ public class DeadLetterEmailTests
     }
 
     [Fact]
-    public void Create_without_custom_id_generates_id()
+    public void Create_without_correlation_id_generates_id()
     {
         var failedAt = DateTimeOffset.UtcNow;
-        var deadLetter = DeadLetterEmail.Create(
+        var deadLetter = DeadLetterEmailFactory.Create(
             "student@example.com",
             "Verify your account",
             "registration_otp",

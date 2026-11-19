@@ -1,5 +1,7 @@
 using System.Reflection;
 using CsRaiders.Api.API.Controllers;
+using CsRaiders.Api.Application.Extensions;
+using CsRaiders.Api.Application.Factories;
 using CsRaiders.Api.Application.Features.Auth.Commands.ChangePassword;
 using CsRaiders.Api.Application.Features.Auth.Commands.ForgotPassword;
 using CsRaiders.Api.Domain.Entities;
@@ -36,11 +38,11 @@ public sealed class PasswordFlowTests
     public void Reset_tokens_are_single_use_and_new_requests_can_invalidate_old_tokens()
     {
         var now = DateTimeOffset.UtcNow;
-        var token = PasswordResetToken.Issue(Guid.NewGuid(), new byte[32], null, now);
+        var token = PasswordResetTokenFactory.Issue(Guid.NewGuid(), new byte[32], null, now);
         Assert.True(token.TryConsume(now));
         Assert.False(token.TryConsume(now.AddSeconds(1)));
 
-        var newer = PasswordResetToken.Issue(Guid.NewGuid(), new byte[32], null, now);
+        var newer = PasswordResetTokenFactory.Issue(Guid.NewGuid(), new byte[32], null, now);
         newer.Invalidate(now);
         Assert.False(newer.IsUsable(now));
     }

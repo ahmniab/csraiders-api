@@ -2,6 +2,8 @@ using System.Net;
 using CsRaiders.Api.Application.Common.Abstractions;
 using CsRaiders.Api.Application.Common.Interfaces.Repositories;
 using CsRaiders.Api.Application.Common.Interfaces.Security;
+using CsRaiders.Api.Application.Extensions;
+using CsRaiders.Api.Application.Factories;
 using CsRaiders.Api.Application.Features.Admin;
 using CsRaiders.Api.Domain.Constants;
 using CsRaiders.Api.Domain.Entities;
@@ -10,6 +12,7 @@ using CsRaiders.Api.Domain.Exceptions;
 using CsRaiders.Api.Domain.Policies;
 using CsRaiders.Api.Domain.ValueObjects;
 using FluentAssertions;
+using Microsoft.Extensions.Caching.Distributed;
 
 namespace CsRaiders.Api.Application.UnitTests.Admin;
 
@@ -29,8 +32,8 @@ public sealed class RbacGuardTests
     [Fact]
     public void Deny_override_never_permits_a_role_grant()
     {
-        var role = Role.Create("Staff", "staff", RoleScope.Staff, [PermissionCatalog.SessionMulti]);
-        var user = User.RegisterVerified(Email.Create("student@example.com"), "Student", Hash, Now);
+        var role = RoleFactory.Create("Staff", "staff", RoleScope.Staff, [PermissionCatalog.SessionMulti]);
+        var user = UserFactory.RegisterVerified(Email.Create("student@example.com"), "Student", Hash, Now);
         user.SetPermissionOverride(PermissionCatalog.SessionMulti, PermissionEffect.Deny, Guid.NewGuid(), Now);
         EffectivePermissions.Resolve([role], user.PermissionOverrides).Should().NotContain(PermissionCatalog.SessionMulti);
     }
@@ -38,16 +41,16 @@ public sealed class RbacGuardTests
     [Fact]
     public void Student_scope_role_rejects_staff_permissions()
     {
-        var action = () => Role.Create("Student", "student", RoleScope.Student, [PermissionCatalog.UserWrite]);
+        var action = () => RoleFactory.Create("Student", "student", RoleScope.Student, [PermissionCatalog.UserWrite]);
         action.Should().Throw<DomainException>().Which.Code.Should().Be("student_role_forbidden_permission");
     }
 
     [Fact]
     public async Task Successful_role_mutation_invalidates_the_global_permission_token()
     {
-        var grantorRole = Role.Create("Manager", "manager", RoleScope.Staff, [PermissionCatalog.RoleManage, PermissionCatalog.CourseRead]);
-        var targetRole = Role.Create("Tutor", "tutor", RoleScope.Staff, [PermissionCatalog.CourseRead]);
-        var grantor = User.RegisterVerified(Email.Create("manager@example.com"), "Manager", Hash, Now);
+        var grantorRole = RoleFactory.Create("Manager", "manager", RoleScope.Staff, [PermissionCatalog.RoleManage, PermissionCatalog.CourseRead]);
+        var targetRole = RoleFactory.Create("Tutor", "tutor", RoleScope.Staff, [PermissionCatalog.CourseRead]);
+        var grantor = UserFactory.RegisterVerified(Email.Create("manager@example.com"), "Manager", Hash, Now);
         grantor.AssignRole(grantorRole.Id, null, Now);
         var users = new Users(grantor);
         var roles = new Roles(grantorRole, targetRole);
@@ -72,9 +75,24 @@ public sealed class RbacGuardTests
         public Task ReconcileAfterMultiSessionLossAsync(Guid userId, CancellationToken ct = default) => Task.CompletedTask;
     }
 
-    private sealed class Cache : ISessionCacheHook
+    private sealed class Cache : IDistributedCache
     {
-        public void Evict(Guid sessionId) { }
+        public byte[]? Get(string key) => null;
+
+        public Task<byte[]?> GetAsync(string key, CancellationToken token = default) => Task.FromResult<byte[]?>(null);
+
+        public void Set(string key, byte[] value, DistributedCacheEntryOptions options) { }
+
+        public Task SetAsync(string key, byte[] value, DistributedCacheEntryOptions options, CancellationToken token = default) =>
+            Task.CompletedTask;
+
+        public void Refresh(string key) { }
+
+        public Task RefreshAsync(string key, CancellationToken token = default) => Task.CompletedTask;
+
+        public void Remove(string key) { }
+
+        public Task RemoveAsync(string key, CancellationToken token = default) => Task.CompletedTask;
     }
 
     private sealed class Clock : IPlatformClock
@@ -110,6 +128,7 @@ public sealed class RbacGuardTests
         public Task<User?> FindByEmailAsync(Email email, bool track = false, bool includeDeleted = false, CancellationToken ct = default) => Task.FromResult<User?>(null);
         public Task<User?> FindByIdAsync(Guid id, bool track = false, CancellationToken ct = default) => Task.FromResult<User?>(id == grantor.Id ? grantor : null);
         public Task<User?> FindByIdWithPermissionsAsync(Guid id, bool track = false, CancellationToken ct = default) => Task.FromResult<User?>(id == grantor.Id ? grantor : null);
+        public Task<User?> FindByEmailWithPermissionsAsync(Email email, bool track = false, CancellationToken ct = default) => Task.FromResult<User?>(null);
         public Task<(bool HasSessionMulti, bool IsStudent)> GetAuthenticationPolicyAsync(Guid userId, CancellationToken ct = default) => Task.FromResult((false, false));
         public Task<IReadOnlyList<Guid>> FindIdsByRoleIdAsync(Guid roleId, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<Guid>>([]);
         public Task AcquireLoginLockAsync(Guid userId, CancellationToken ct = default) => Task.CompletedTask;

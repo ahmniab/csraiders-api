@@ -7,160 +7,132 @@ using Xunit;
 
 namespace CsRaiders.Api.IntegrationTests;
 
+/// <summary>
+/// Policy regressions for the claim-based authorization model: every catalog
+/// permission gets a policy that requires a "permission" claim with that value.
+/// </summary>
 public sealed class PermissionAuthorizationHandlerTests
 {
-    private readonly PermissionAuthorizationHandler _handler = new();
+    private static IAuthorizationService BuildAuthorizationService()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddAuthorization(AuthPolicies.AddAuthPolicies);
+
+        return services.BuildServiceProvider().GetRequiredService<IAuthorizationService>();
+    }
 
     [Fact]
-    public void Handler_has_parameterless_constructor_and_no_database_or_cache_dependencies()
+    public void Auth_policies_register_the_authenticated_only_policy_and_every_catalog_permission()
     {
-        var constructors = typeof(PermissionAuthorizationHandler).GetConstructors();
-        Assert.Single(constructors);
-        Assert.Empty(constructors[0].GetParameters());
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddAuthorization(AuthPolicies.AddAuthPolicies);
+
+        using var provider = services.BuildServiceProvider();
+        var options = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<AuthorizationOptions>>().Value;
+
+        Assert.True(options.GetPolicy(AuthPolicies.AuthenticatedOnly) is not null);
+        foreach (var permission in PermissionCatalog.All)
+        {
+            Assert.True(options.GetPolicy(permission) is not null,
+                $"Expected a policy named '{permission}'.");
+        }
     }
 
     [Theory]
-    [InlineData(PermissionCatalog.CourseRead, 1UL << 0)]
-    [InlineData(PermissionCatalog.CourseWrite, 1UL << 1)]
-    [InlineData(PermissionCatalog.UserWrite, 1UL << 8)]
-    [InlineData(PermissionCatalog.RoleManage, 1UL << 9)]
-    [InlineData(PermissionCatalog.SessionRevoke, 1UL << 19)]
-    public async Task Allows_request_when_bitmask_contains_required_permission(string permission, ulong requiredBit)
+    [InlineData(PermissionCatalog.CourseRead)]
+    [InlineData(PermissionCatalog.CourseWrite)]
+    [InlineData(PermissionCatalog.UserWrite)]
+    [InlineData(PermissionCatalog.RoleManage)]
+    [InlineData(PermissionCatalog.PaymentManage)]
+    [InlineData(PermissionCatalog.SessionRevoke)]
+    public async Task Allows_request_when_permission_claim_matches_the_policy(string permission)
     {
-        var principal = CreatePrincipalWithPerms(requiredBit.ToString());
-        var requirement = new PermissionRequirement(permission);
-        var context = new AuthorizationHandlerContext([requirement], principal, null);
+        var authService = BuildAuthorizationService();
+        var principal = CreatePrincipalWithPermissions([permission]);
 
-        await _handler.HandleAsync(context);
+        var result = await authService.AuthorizeAsync(principal, null, permission);
 
-        Assert.True(context.HasSucceeded);
-        Assert.False(context.HasFailed);
+        Assert.True(result.Succeeded);
     }
 
     [Fact]
-    public async Task Allows_request_when_multiple_permissions_are_represented_in_bitmask()
+    public async Task Allows_request_when_multiple_permission_claims_are_present()
     {
-        // Combined CourseRead (bit 0) and RoleManage (bit 9)
-        ulong combinedMask = (1UL << 0) | (1UL << 9);
-        var principal = CreatePrincipalWithPerms(combinedMask.ToString());
+        var authService = BuildAuthorizationService();
+        var principal = CreatePrincipalWithPermissions(
+            [PermissionCatalog.CourseRead, PermissionCatalog.RoleManage]);
 
-        var reqCourseRead = new PermissionRequirement(PermissionCatalog.CourseRead);
-        var context1 = new AuthorizationHandlerContext([reqCourseRead], principal, null);
-        await _handler.HandleAsync(context1);
-        Assert.True(context1.HasSucceeded);
+        var readResult = await authService.AuthorizeAsync(principal, null, PermissionCatalog.CourseRead);
+        var roleResult = await authService.AuthorizeAsync(principal, null, PermissionCatalog.RoleManage);
 
-        var reqRoleManage = new PermissionRequirement(PermissionCatalog.RoleManage);
-        var context2 = new AuthorizationHandlerContext([reqRoleManage], principal, null);
-        await _handler.HandleAsync(context2);
-        Assert.True(context2.HasSucceeded);
+        Assert.True(readResult.Succeeded);
+        Assert.True(roleResult.Succeeded);
     }
 
     [Theory]
     [InlineData(PermissionCatalog.CourseWrite)]
     [InlineData(PermissionCatalog.UserWrite)]
     [InlineData(PermissionCatalog.SessionRevoke)]
-    public async Task Denies_request_when_bitmask_lacks_required_permission(string missingPermission)
+    public async Task Denies_request_when_permission_claim_is_absent(string missingPermission)
     {
-        // Bitmask only has CourseRead (bit 0)
-        ulong bitmask = 1UL << 0;
-        var principal = CreatePrincipalWithPerms(bitmask.ToString());
-        var requirement = new PermissionRequirement(missingPermission);
-        var context = new AuthorizationHandlerContext([requirement], principal, null);
+        var authService = BuildAuthorizationService();
+        var principal = CreatePrincipalWithPermissions([PermissionCatalog.CourseRead]);
 
-        await _handler.HandleAsync(context);
+        var result = await authService.AuthorizeAsync(principal, null, missingPermission);
 
-        Assert.False(context.HasSucceeded);
-        Assert.True(context.HasFailed);
+        Assert.False(result.Succeeded);
     }
 
     [Fact]
-    public async Task Denies_request_when_perms_claim_is_missing()
+    public async Task Denies_request_when_permission_claim_is_missing_entirely()
     {
+        var authService = BuildAuthorizationService();
         var principal = new ClaimsPrincipal(new ClaimsIdentity(
-            [new Claim("sub", Guid.NewGuid().ToString())], "TestAuth"));
-        var requirement = new PermissionRequirement(PermissionCatalog.CourseRead);
-        var context = new AuthorizationHandlerContext([requirement], principal, null);
+            [new Claim("sub", Guid.NewGuid().ToString()), new Claim("sid", Guid.NewGuid().ToString())],
+            "TestAuth"));
 
-        await _handler.HandleAsync(context);
+        var result = await authService.AuthorizeAsync(principal, null, PermissionCatalog.CourseRead);
 
-        Assert.False(context.HasSucceeded);
-        Assert.True(context.HasFailed);
-    }
-
-    [Theory]
-    [InlineData("")]
-    [InlineData("   ")]
-    [InlineData("invalid")]
-    [InlineData("abc")]
-    [InlineData("-1")]
-    [InlineData("+100")]
-    [InlineData("1.5")]
-    [InlineData("0x10")]
-    [InlineData("18446744073709551616")] // ulong.MaxValue + 1
-    public async Task Denies_request_when_perms_claim_is_malformed(string malformedPerms)
-    {
-        var principal = CreatePrincipalWithPerms(malformedPerms);
-        var requirement = new PermissionRequirement(PermissionCatalog.CourseRead);
-        var context = new AuthorizationHandlerContext([requirement], principal, null);
-
-        await _handler.HandleAsync(context);
-
-        Assert.False(context.HasSucceeded);
-        Assert.True(context.HasFailed);
+        Assert.False(result.Succeeded);
     }
 
     [Fact]
-    public async Task Denies_request_when_requirement_is_not_a_recognized_permission()
+    public async Task Authenticated_only_policy_requires_the_session_claim()
     {
-        const ulong fullMask = (1UL << 20) - 1;
-        var principal = CreatePrincipalWithPerms(fullMask.ToString());
-        var requirement = new PermissionRequirement("unknown:unregistered:perm");
-        var context = new AuthorizationHandlerContext([requirement], principal, null);
+        var authService = BuildAuthorizationService();
 
-        await _handler.HandleAsync(context);
+        var withSession = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim("sub", Guid.NewGuid().ToString()), new Claim("sid", Guid.NewGuid().ToString())],
+            "TestAuth"));
+        var withoutSession = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim("sub", Guid.NewGuid().ToString())],
+            "TestAuth"));
 
-        Assert.False(context.HasSucceeded);
-        Assert.True(context.HasFailed);
+        Assert.True((await authService.AuthorizeAsync(withSession, null, AuthPolicies.AuthenticatedOnly)).Succeeded);
+        Assert.False((await authService.AuthorizeAsync(withoutSession, null, AuthPolicies.AuthenticatedOnly)).Succeeded);
     }
 
     [Fact]
-    public async Task End_to_end_authorization_pipeline_evaluates_bitmask_policies_correctly()
+    public async Task Unknown_policy_names_are_not_registered()
     {
-        var services = new ServiceCollection();
-        services.AddLogging();
-        services.AddAuthorization();
-        services.AddSingleton<IAuthorizationPolicyProvider, PermissionAuthorizationPolicyProvider>();
-        services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
+        var authService = BuildAuthorizationService();
+        var principal = CreatePrincipalWithPermissions(PermissionCatalog.All);
 
-        using var provider = services.BuildServiceProvider();
-        var authService = provider.GetRequiredService<IAuthorizationService>();
-
-        ulong authorizedMask = (1UL << 0) | (1UL << 8); // CourseRead (bit 0), UserWrite (bit 8)
-        var authorizedUser = CreatePrincipalWithPerms(authorizedMask.ToString());
-
-        var readResult = await authService.AuthorizeAsync(authorizedUser, null, "permission:course:read");
-        Assert.True(readResult.Succeeded);
-
-        var writeResult = await authService.AuthorizeAsync(authorizedUser, null, "permission:user:write");
-        Assert.True(writeResult.Succeeded);
-
-        var deniedResult = await authService.AuthorizeAsync(authorizedUser, null, "permission:course:purge");
-        Assert.False(deniedResult.Succeeded);
-
-        var missingPermsUser = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", Guid.NewGuid().ToString())], "TestAuth"));
-        var missingResult = await authService.AuthorizeAsync(missingPermsUser, null, "permission:course:read");
-        Assert.False(missingResult.Succeeded);
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => authService.AuthorizeAsync(principal, null, "unknown:unregistered:perm"));
     }
 
-    private static ClaimsPrincipal CreatePrincipalWithPerms(string permsValue)
+    private static ClaimsPrincipal CreatePrincipalWithPermissions(IEnumerable<string> permissions)
     {
-        var identity = new ClaimsIdentity(
-        [
-            new Claim("sub", Guid.NewGuid().ToString()),
-            new Claim("sid", Guid.NewGuid().ToString()),
-            new Claim("perms", permsValue)
-        ], "TestAuth");
+        var claims = new List<Claim>
+        {
+            new("sub", Guid.NewGuid().ToString()),
+            new("sid", Guid.NewGuid().ToString())
+        };
+        claims.AddRange(permissions.Select(permission => new Claim("permission", permission)));
 
-        return new ClaimsPrincipal(identity);
+        return new ClaimsPrincipal(new ClaimsIdentity(claims, "TestAuth"));
     }
 }

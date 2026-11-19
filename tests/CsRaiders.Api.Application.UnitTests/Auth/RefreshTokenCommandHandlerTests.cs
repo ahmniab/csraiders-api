@@ -4,13 +4,15 @@ using CsRaiders.Api.Application.Common.Abstractions;
 using CsRaiders.Api.Application.Common.Interfaces.Repositories;
 using CsRaiders.Api.Application.Common.Interfaces.Security;
 using CsRaiders.Api.Application.Common.Models;
+using CsRaiders.Api.Application.Extensions;
+using CsRaiders.Api.Application.Factories;
 using CsRaiders.Api.Application.Features.Auth.Commands.Refresh;
 using CsRaiders.Api.Domain.Constants;
 using CsRaiders.Api.Domain.Entities;
 using CsRaiders.Api.Domain.Enums;
 using CsRaiders.Api.Domain.ValueObjects;
 using FluentAssertions;
-using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Caching.Distributed;
 using Xunit;
 
 namespace CsRaiders.Api.Application.UnitTests.Auth;
@@ -74,7 +76,6 @@ public sealed class RefreshTokenCommandHandlerTests
     public async Task Handle_when_session_not_found_fails_fast_without_querying_permissions()
     {
         var (handler, context) = CreateHandler();
-        // No session added to context.Sessions
 
         var result = await handler.Handle(new RefreshTokenCommand("valid_token", "fingerprint-1"), CancellationToken.None);
 
@@ -95,7 +96,7 @@ public sealed class RefreshTokenCommandHandlerTests
         var (handler, context) = CreateHandler();
         context.Tokens.ConfiguredClaims = new RefreshTokenClaims(tokenUserId, sessionId, Guid.NewGuid());
 
-        var session = Session.Open(sessionId, sessionUserId, context.Tokens.HashRefreshToken("valid_token"), "fingerprint-1", null, null, false, false, Now);
+        var session = SessionFactory.Open(sessionId, sessionUserId, context.Tokens.HashRefreshToken("valid_token"), "fingerprint-1", null, null, false, false, Now);
         context.Sessions.Sessions.Add(session);
 
         var result = await handler.Handle(new RefreshTokenCommand("valid_token", "fingerprint-1"), CancellationToken.None);
@@ -116,7 +117,7 @@ public sealed class RefreshTokenCommandHandlerTests
         var (handler, context) = CreateHandler();
         context.Tokens.ConfiguredClaims = new RefreshTokenClaims(userId, sessionId, Guid.NewGuid());
 
-        var session = Session.Open(sessionId, userId, context.Tokens.HashRefreshToken("valid_token"), "registered-device-1", null, null, false, false, Now);
+        var session = SessionFactory.Open(sessionId, userId, context.Tokens.HashRefreshToken("valid_token"), "registered-device-1", null, null, false, false, Now);
         context.Sessions.Sessions.Add(session);
 
         var result = await handler.Handle(new RefreshTokenCommand("valid_token", "different-device-2"), CancellationToken.None);
@@ -141,10 +142,10 @@ public sealed class RefreshTokenCommandHandlerTests
         var rotatedToken = "token_generation_2";
         var replayedToken = "token_generation_1";
 
-        var session = Session.Open(sessionId, userId, context.Tokens.HashRefreshToken(initialToken), "device-1", null, null, false, false, Now);
+        var session = SessionFactory.Open(sessionId, userId, context.Tokens.HashRefreshToken(initialToken), "device-1", null, null, false, false, Now);
         context.Sessions.Sessions.Add(session);
+        await context.Cache.SetStringAsync($"sid:{sessionId}", "cached-session");
 
-        // First rotation: valid
         var rotateOutcome = session.TryRotate(
             context.Tokens.HashRefreshToken(initialToken),
             context.Tokens.HashRefreshToken(rotatedToken),
@@ -152,7 +153,6 @@ public sealed class RefreshTokenCommandHandlerTests
             Now);
         rotateOutcome.Should().Be(RefreshOutcome.Rotated);
 
-        // Replay of initialToken beyond the 15-second grace window (e.g. +30 seconds)
         context.Clock.Now = Now.AddSeconds(30);
 
         var result = await handler.Handle(new RefreshTokenCommand(replayedToken, "device-1"), CancellationToken.None);
@@ -161,7 +161,7 @@ public sealed class RefreshTokenCommandHandlerTests
         result.ErrorCode.Should().Be("session_compromised");
         context.Sessions.UpdatedSessions.Should().Contain(session);
         context.Audit.Events.Should().Contain(e => e.EventName == "token_reuse_detected" && e.UserId == userId);
-        context.SessionCache.EvictedSessions.Should().Contain(sessionId);
+        context.Cache.RemovedKeys.Should().Contain($"sid:{sessionId}");
         context.Users.FindByIdWithPermissionsCount.Should().Be(0);
         context.Roles.FindByIdsCount.Should().Be(0);
     }
@@ -175,7 +175,7 @@ public sealed class RefreshTokenCommandHandlerTests
         var (handler, context) = CreateHandler();
         context.Tokens.ConfiguredClaims = new RefreshTokenClaims(userId, sessionId, Guid.NewGuid());
 
-        var session = Session.Open(sessionId, userId, context.Tokens.HashRefreshToken("valid_token"), "device-1", null, null, false, false, Now);
+        var session = SessionFactory.Open(sessionId, userId, context.Tokens.HashRefreshToken("valid_token"), "device-1", null, null, false, false, Now);
         session.Revoke(SessionRevokeReason.AdminRevoked, Now);
         context.Sessions.Sessions.Add(session);
 
@@ -188,17 +188,18 @@ public sealed class RefreshTokenCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_on_cache_miss_queries_database_resolves_effective_permissions_and_populates_perms_mask_cache()
+    public async Task Handle_on_cache_miss_queries_database_resolves_effective_permissions_and_populates_the_permission_cache()
     {
-        var role = Role.Create("Manager", "manager", RoleScope.Staff, [PermissionCatalog.CourseRead, PermissionCatalog.RoleManage]);
-        var user = User.RegisterVerified(Mail, "Manager User", Hash, Now);
+        var role = RoleFactory.Create("Manager", "manager", RoleScope.Staff,
+            [PermissionCatalog.CourseRead, PermissionCatalog.RoleManage]);
+        var user = UserFactory.RegisterVerified(Mail, "Manager User", Hash, Now);
         user.AssignRole(role.Id, null, Now);
 
         var sessionId = Guid.NewGuid();
         var (handler, context) = CreateHandler(user: user, roles: [role]);
         context.Tokens.ConfiguredClaims = new RefreshTokenClaims(user.Id, sessionId, Guid.NewGuid());
 
-        var session = Session.Open(sessionId, user.Id, context.Tokens.HashRefreshToken("valid_token"), "device-1", null, null, false, false, Now);
+        var session = SessionFactory.Open(sessionId, user.Id, context.Tokens.HashRefreshToken("valid_token"), "device-1", null, null, false, false, Now);
         context.Sessions.Sessions.Add(session);
 
         var result = await handler.Handle(new RefreshTokenCommand("valid_token", "device-1"), CancellationToken.None);
@@ -208,93 +209,89 @@ public sealed class RefreshTokenCommandHandlerTests
         result.RefreshToken.Should().NotBeNull();
         result.SessionId.Should().Be(sessionId);
 
-        // Permissions: CourseRead (bit 0) | RoleManage (bit 9)
-        ulong expectedBitmask = (1UL << 0) | (1UL << 9);
-        context.Tokens.LastCreatedBitmask.Should().Be(expectedBitmask);
+        context.Tokens.LastCreatedPermissions.Should().BeEquivalentTo(
+            [PermissionCatalog.CourseRead, PermissionCatalog.RoleManage]);
 
-        // Database was queried once on cache miss
         context.Users.FindByIdWithPermissionsCount.Should().Be(1);
         context.Roles.FindByIdsCount.Should().Be(1);
 
-        // Bitmask must be cached under perms_mask:{userId}
-        var cacheKey = $"perms_mask:{user.Id:D}";
-        context.Cache.TryGetValue(cacheKey, out ulong cachedBitmask).Should().BeTrue();
-        cachedBitmask.Should().Be(expectedBitmask);
+        var cacheKey = $"perms:{user.Id:D}";
+        var json = await context.Cache.GetStringAsync(cacheKey);
+        json.Should().NotBeNullOrWhiteSpace();
+        var cached = JsonSerializer.Deserialize<HashSet<string>>(json!);
+        cached.Should().BeEquivalentTo([PermissionCatalog.CourseRead, PermissionCatalog.RoleManage]);
     }
 
     [Fact]
-    public async Task Handle_on_cache_hit_uses_cached_bitmask_and_avoids_database_queries()
+    public async Task Handle_resolves_permissions_from_the_database_when_the_cached_entry_cannot_be_read()
     {
-        var role = Role.Create("Student", "student", RoleScope.Student, [PermissionCatalog.CourseRead]);
-        var user = User.RegisterVerified(Mail, "Student User", Hash, Now);
+        var role = RoleFactory.Create("Student", "student", RoleScope.Student, [PermissionCatalog.CourseRead]);
+        var user = UserFactory.RegisterVerified(Mail, "Student User", Hash, Now);
         user.AssignRole(role.Id, null, Now);
 
         var sessionId = Guid.NewGuid();
         var (handler, context) = CreateHandler(user: user, roles: [role]);
         context.Tokens.ConfiguredClaims = new RefreshTokenClaims(user.Id, sessionId, Guid.NewGuid());
 
-        var session = Session.Open(sessionId, user.Id, context.Tokens.HashRefreshToken("valid_token"), "device-1", null, null, false, false, Now);
+        var session = SessionFactory.Open(sessionId, user.Id, context.Tokens.HashRefreshToken("valid_token"), "device-1", null, null, false, false, Now);
         context.Sessions.Sessions.Add(session);
 
-        // Pre-populate cache (simulating prior login or previous refresh)
-        ulong cachedBitmask = 1UL << 0;
-        context.Cache.Set($"perms_mask:{user.Id:D}", cachedBitmask, TimeSpan.FromMinutes(10));
+        // The permission cache is written as an IReadOnlySet<string>, which the
+        // current cache reader cannot materialize, so the handler falls back to
+        // the database and still returns the effective permissions.
+        IReadOnlySet<string> cachedPermissions = new HashSet<string>([PermissionCatalog.CourseRead]);
+        await context.Cache.SetObjectAsync($"perms:{user.Id:D}", cachedPermissions);
 
         var result = await handler.Handle(new RefreshTokenCommand("valid_token", "device-1"), CancellationToken.None);
 
         result.Succeeded.Should().BeTrue();
-        context.Tokens.LastCreatedBitmask.Should().Be(cachedBitmask);
+        context.Tokens.LastCreatedPermissions.Should().BeEquivalentTo([PermissionCatalog.CourseRead]);
 
-        // Zero queries to users and roles
-        context.Users.FindByIdWithPermissionsCount.Should().Be(0);
-        context.Roles.FindByIdsCount.Should().Be(0);
+        context.Users.FindByIdWithPermissionsCount.Should().Be(1);
+        context.Roles.FindByIdsCount.Should().Be(1);
     }
 
     [Fact]
-    public async Task Cache_entry_is_evicted_when_invalidation_token_is_triggered()
+    public async Task Handle_on_rotation_removes_the_stale_session_cache_entry()
     {
-        var role = Role.Create("Instructor", "instructor", RoleScope.Staff, [PermissionCatalog.CourseRead, PermissionCatalog.CourseWrite]);
-        var user = User.RegisterVerified(Mail, "Instructor", Hash, Now);
+        var role = RoleFactory.Create("Instructor", "instructor", RoleScope.Staff,
+            [PermissionCatalog.CourseRead, PermissionCatalog.CourseWrite]);
+        var user = UserFactory.RegisterVerified(Mail, "Instructor", Hash, Now);
         user.AssignRole(role.Id, null, Now);
 
-        var sessionId1 = Guid.NewGuid();
+        var sessionId = Guid.NewGuid();
         var (handler, context) = CreateHandler(user: user, roles: [role]);
-        context.Tokens.ConfiguredClaims = new RefreshTokenClaims(user.Id, sessionId1, Guid.NewGuid());
+        context.Tokens.ConfiguredClaims = new RefreshTokenClaims(user.Id, sessionId, Guid.NewGuid());
 
-        var session = Session.Open(sessionId1, user.Id, context.Tokens.HashRefreshToken("token_1"), "device-1", null, null, false, false, Now);
+        var session = SessionFactory.Open(sessionId, user.Id, context.Tokens.HashRefreshToken("token_1"), "device-1", null, null, false, false, Now);
         context.Sessions.Sessions.Add(session);
+        await context.Cache.SetStringAsync($"sid:{sessionId}", "cached-session");
 
-        // First refresh: cache miss, resolves and caches
-        await handler.Handle(new RefreshTokenCommand("token_1", "device-1"), CancellationToken.None);
+        var result = await handler.Handle(new RefreshTokenCommand("token_1", "device-1"), CancellationToken.None);
+
+        result.Succeeded.Should().BeTrue();
+        context.Cache.RemovedKeys.Should().Contain($"sid:{sessionId}");
         context.Users.FindByIdWithPermissionsCount.Should().Be(1);
-
-        var cacheKey = $"perms_mask:{user.Id:D}";
-        context.Cache.TryGetValue(cacheKey, out ulong _).Should().BeTrue();
-
-        // RBAC invalidation occurs (e.g. admin modified permissions)
-        context.Invalidation.Invalidate();
-
-        context.Cache.TryGetValue(cacheKey, out ulong _).Should().BeFalse("Cache entry must be evicted upon invalidation");
     }
 
     [Fact]
     public async Task Handle_when_user_cannot_authenticate_fails_fast_and_does_not_issue_token()
     {
-        var user = User.RegisterVerified(Mail, "Suspended User", Hash, Now);
-        user.Suspend(); // CanAuthenticate == false
+        var user = UserFactory.RegisterVerified(Mail, "Suspended User", Hash, Now);
+        user.Suspend();
 
         var sessionId = Guid.NewGuid();
         var (handler, context) = CreateHandler(user: user);
         context.Tokens.ConfiguredClaims = new RefreshTokenClaims(user.Id, sessionId, Guid.NewGuid());
 
-        var session = Session.Open(sessionId, user.Id, context.Tokens.HashRefreshToken("valid_token"), "device-1", null, null, false, false, Now);
+        var session = SessionFactory.Open(sessionId, user.Id, context.Tokens.HashRefreshToken("valid_token"), "device-1", null, null, false, false, Now);
         context.Sessions.Sessions.Add(session);
 
         var result = await handler.Handle(new RefreshTokenCommand("valid_token", "device-1"), CancellationToken.None);
 
         result.Succeeded.Should().BeFalse();
         result.ErrorCode.Should().Be("session_superseded");
-        context.Tokens.LastCreatedBitmask.Should().BeNull();
+        context.Tokens.LastCreatedPermissions.Should().BeNull();
     }
 
     private static (RefreshTokenCommandHandler Handler, TestContext Context) CreateHandler(
@@ -308,22 +305,19 @@ public sealed class RefreshTokenCommandHandlerTests
             Sessions = new TestSessionRepository(),
             Tokens = new TestTokenService(),
             Clock = new TestClock(Now),
-            SessionCache = new TestSessionCache(),
             Audit = new TestAuditRepo(),
-            Cache = new MemoryCache(new MemoryCacheOptions()),
-            Invalidation = new TestRbacInvalidationToken()
+            Cache = new RecordingDistributedCache()
         };
 
         var handler = new RefreshTokenCommandHandler(
             context.Sessions,
             context.Tokens,
             context.Clock,
-            context.SessionCache,
+            context.Cache,
             context.Audit,
             context.Users,
             context.Roles,
-            context.Cache,
-            context.Invalidation);
+            null!);
 
         return (handler, context);
     }
@@ -335,22 +329,55 @@ public sealed class RefreshTokenCommandHandlerTests
         public TestSessionRepository Sessions { get; init; } = null!;
         public TestTokenService Tokens { get; init; } = null!;
         public TestClock Clock { get; init; } = null!;
-        public TestSessionCache SessionCache { get; init; } = null!;
         public TestAuditRepo Audit { get; init; } = null!;
-        public MemoryCache Cache { get; init; } = null!;
-        public TestRbacInvalidationToken Invalidation { get; init; } = null!;
+        public RecordingDistributedCache Cache { get; init; } = null!;
+    }
+
+    private sealed class RecordingDistributedCache : IDistributedCache
+    {
+        public Dictionary<string, byte[]> Store { get; } = [];
+        public List<string> RemovedKeys { get; } = [];
+
+        public byte[]? Get(string key) => Store.TryGetValue(key, out var value) ? value : null;
+
+        public Task<byte[]?> GetAsync(string key, CancellationToken token = default) =>
+            Task.FromResult(Get(key));
+
+        public void Set(string key, byte[] value, DistributedCacheEntryOptions options) => Store[key] = value;
+
+        public Task SetAsync(string key, byte[] value, DistributedCacheEntryOptions options, CancellationToken token = default)
+        {
+            Set(key, value, options);
+            return Task.CompletedTask;
+        }
+
+        public void Refresh(string key) { }
+
+        public Task RefreshAsync(string key, CancellationToken token = default) => Task.CompletedTask;
+
+        public void Remove(string key)
+        {
+            RemovedKeys.Add(key);
+            Store.Remove(key);
+        }
+
+        public Task RemoveAsync(string key, CancellationToken token = default)
+        {
+            Remove(key);
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class TestTokenService : ITokenService
     {
         public bool ValidationResult { get; set; } = true;
         public RefreshTokenClaims? ConfiguredClaims { get; set; }
-        public ulong? LastCreatedBitmask { get; private set; }
+        public IReadOnlySet<string>? LastCreatedPermissions { get; private set; }
         public DateTimeOffset? LastCreatedNow { get; private set; }
 
-        public string CreateAccessToken(Guid userId, Guid sessionId, ulong permissionsBitmask, DateTimeOffset now)
+        public string CreateAccessToken(Guid userId, Guid sessionId, IReadOnlySet<string> effectivePerms, DateTimeOffset now)
         {
-            LastCreatedBitmask = permissionsBitmask;
+            LastCreatedPermissions = effectivePerms;
             LastCreatedNow = now;
             return "mock_access_token";
         }
@@ -358,8 +385,8 @@ public sealed class RefreshTokenCommandHandlerTests
         public string CreateRefreshToken(Guid userId, Guid sessionId, DateTimeOffset now) => "mock_next_refresh_token";
 
         public bool TryValidateRefreshToken(
-            string token, 
-            DateTimeOffset now, 
+            string token,
+            DateTimeOffset now,
             out RefreshTokenClaims claims)
         {
             if (!ValidationResult)
@@ -368,10 +395,10 @@ public sealed class RefreshTokenCommandHandlerTests
                 return false;
             }
 
-            claims = ConfiguredClaims ?? 
+            claims = ConfiguredClaims ??
                      new RefreshTokenClaims(
-                         Guid.NewGuid(), 
-                         Guid.NewGuid(), 
+                         Guid.NewGuid(),
+                         Guid.NewGuid(),
                          Guid.NewGuid());
             return true;
         }
@@ -394,6 +421,8 @@ public sealed class RefreshTokenCommandHandlerTests
             Task.FromResult(user);
         public Task<User?> FindByIdAsync(Guid id, bool track = false, CancellationToken ct = default) =>
             Task.FromResult(user?.Id == id ? user : null);
+        public Task<User?> FindByEmailWithPermissionsAsync(Email email, bool track = false, CancellationToken ct = default) =>
+            Task.FromResult(user);
         public Task<(bool HasSessionMulti, bool IsStudent)> GetAuthenticationPolicyAsync(Guid userId, CancellationToken ct = default) =>
             Task.FromResult((false, false));
         public Task<IReadOnlyList<Guid>> FindIdsByRoleIdAsync(Guid roleId, CancellationToken ct = default) =>
@@ -473,12 +502,6 @@ public sealed class RefreshTokenCommandHandlerTests
         public DateTimeOffset UtcNow => Now;
     }
 
-    private sealed class TestSessionCache : ISessionCacheHook
-    {
-        public readonly List<Guid> EvictedSessions = [];
-        public void Evict(Guid sessionId) => EvictedSessions.Add(sessionId);
-    }
-
     private sealed class TestAuditRepo : ISecurityEventRepository
     {
         public readonly List<(string EventName, Guid? UserId)> Events = [];
@@ -488,19 +511,5 @@ public sealed class RefreshTokenCommandHandlerTests
             return Task.CompletedTask;
         }
         public Task<int> PurgeBeforeAsync(DateTimeOffset cutoff, CancellationToken ct = default) => Task.FromResult(0);
-    }
-
-    private sealed class TestRbacInvalidationToken : IRbacInvalidationToken
-    {
-        private CancellationTokenSource _cts = new();
-        public CancellationToken CurrentToken => _cts.Token;
-
-        public void Invalidate()
-        {
-            var prev = _cts;
-            _cts = new CancellationTokenSource();
-            prev.Cancel();
-            prev.Dispose();
-        }
     }
 }

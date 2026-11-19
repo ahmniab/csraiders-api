@@ -1,13 +1,12 @@
-using CsRaiders.Api.API.Authorization;
 using CsRaiders.Api.API.Controllers;
+using CsRaiders.Api.Application.Extensions;
+using CsRaiders.Api.Application.Factories;
 using CsRaiders.Api.Domain.Constants;
-using CsRaiders.Api.Domain.Entities;
 using CsRaiders.Api.Domain.Enums;
 using CsRaiders.Api.Domain.Policies;
 using CsRaiders.Api.Infrastructure.Services;
 using CsRaiders.Api.Application.Common.Interfaces.Repositories;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
 
 namespace CsRaiders.Api.IntegrationTests;
 
@@ -25,12 +24,22 @@ public sealed class RbacReconciliationTests
             typeof(AdminUsersController).GetMethod(nameof(AdminUsersController.SetRoles))!
         };
 
-        Assert.Equal("permission:role:manage", roleEndpoint.GetCustomAttributes(typeof(HasPermissionAttribute), true)
-            .Cast<HasPermissionAttribute>().Single().Policy);
+        var rolePolicies = roleEndpoint.GetCustomAttributes(typeof(AuthorizeAttribute), true)
+            .Cast<AuthorizeAttribute>().Select(a => a.Policy).ToArray();
+        Assert.Single(rolePolicies);
+        Assert.Equal(PermissionCatalog.RoleManage, rolePolicies[0]);
+
         foreach (var endpoint in userEndpoints)
-            Assert.Equal("permission:user:manage", endpoint.GetCustomAttributes(typeof(HasPermissionAttribute), true)
-                .Cast<HasPermissionAttribute>().Single().Policy);
+        {
+            var policies = endpoint.GetCustomAttributes(typeof(AuthorizeAttribute), true)
+                .Cast<AuthorizeAttribute>().Select(a => a.Policy).ToArray();
+            Assert.Contains(PermissionCatalog.UserWrite, policies);
+            Assert.Contains(PermissionCatalog.RoleManage, policies);
+        }
+
         Assert.DoesNotContain(typeof(AdminRolesController).GetCustomAttributes(typeof(AuthorizeAttribute), true)
+            .Cast<AuthorizeAttribute>(), a => !string.IsNullOrEmpty(a.Roles));
+        Assert.DoesNotContain(typeof(AdminUsersController).GetCustomAttributes(typeof(AuthorizeAttribute), true)
             .Cast<AuthorizeAttribute>(), a => !string.IsNullOrEmpty(a.Roles));
     }
 
@@ -48,8 +57,8 @@ public sealed class RbacReconciliationTests
     [Fact]
     public void Removing_session_multi_effectively_requires_single_session_reconciliation()
     {
-        var role = Role.Create("Staff", "staff", RoleScope.Staff, [PermissionCatalog.SessionMulti]);
-        var user = User.RegisterVerified(CsRaiders.Api.Domain.ValueObjects.Email.Create("student@example.com"), "Student",
+        var role = RoleFactory.Create("Staff", "staff", RoleScope.Staff, [PermissionCatalog.SessionMulti]);
+        var user = UserFactory.RegisterVerified(CsRaiders.Api.Domain.ValueObjects.Email.Create("student@example.com"), "Student",
             "$argon2id$v=19$m=19456,t=2,p=1$c2FsdA==$dGFn", DateTimeOffset.UtcNow);
         var before = EffectivePermissions.Resolve([role], user.PermissionOverrides);
         role.SetPermissions([]);
